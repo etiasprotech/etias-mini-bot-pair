@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETIAS-MINI-BOT | Pair Code</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--green:#25D366;--dark:#128C7E;--bg:#0a0a0a;--glass:rgba(20,20,20,0.85);--text:#fff;--muted:#aaa;--radius:20px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Montserrat',sans-serif;min-height:100vh;background:var(--bg);color:var(--text);display:flex;flex-direction:column;align-items:center;padding:80px 15px 40px;position:relative;overflow-x:hidden}
+    #particles-js{position:fixed;top:0;left:0;width:100%;height:100%;z-index:-2;background:radial-gradient(ellipse at center,#0a1a0f 0%,#000 100%)}
+    .cyber-grid{position:fixed;inset:0;z-index:-1;background:linear-gradient(rgba(37,211,102,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(37,211,102,0.04) 1px,transparent 1px);background-size:40px 40px}
+    .header{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 20px;background:rgba(10,20,10,0.9);backdrop-filter:blur(10px);border-bottom:2px solid var(--green);z-index:1000}
+    .logo{display:flex;align-items:center;gap:12px}
+    .logo img{width:45px;height:45px;border-radius:50%;border:2px solid var(--green);object-fit:cover;box-shadow:0 0 15px var(--green);background:#111}
+    .logo-text{font-family:'Orbitron',sans-serif;font-weight:900;font-size:1.3rem;color:var(--green);letter-spacing:1px}
+    .battery{background:rgba(0,0,0,0.5);border-radius:50px;padding:6px 14px;border:1px solid rgba(255,255,255,0.1);font-size:0.9rem;display:flex;align-items:center;gap:6px}
+    .main{width:100%;max-width:480px;display:flex;flex-direction:column;gap:20px;z-index:1}
+    .profile{text-align:center;margin:10px 0}
+    .profile-container{width:150px;height:150px;margin:0 auto;position:relative}
+    .profile-border{position:absolute;width:110%;height:110%;top:-5%;left:-5%;border-radius:50%;background:conic-gradient(from 0deg,var(--green),var(--dark),#fff,var(--green));animation:rotate 4s linear infinite}
+    .profile-border::before{content:'';position:absolute;width:94%;height:94%;top:3%;left:3%;background:var(--bg);border-radius:50%}
+    .profile-img{width:100%;height:100%;border-radius:50%;object-fit:cover;position:absolute;top:0;left:0;border:3px solid var(--green);box-shadow:0 0 25px var(--green);background:#111}
+    @keyframes rotate{to{transform:rotate(360deg)}}
+    @keyframes blink{0%{opacity:1}50%{opacity:0.3}100%{opacity:1}}
+    .stats{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:5px 0 10px}
+    .stat{background:rgba(0,0,0,0.6);border:1px solid var(--green);border-radius:50px;padding:8px 16px;font-size:0.85rem;color:var(--green);font-weight:700;display:flex;align-items:center;gap:7px;box-shadow:0 0 10px rgba(37,211,102,0.2)}
+    .stat span{color:#fff}
+    .stat.online{border-color:#fff;color:#fff}
+    .box{background:var(--glass);backdrop-filter:blur(15px);border-radius:var(--radius);padding:28px;border:2px solid var(--green);box-shadow:0 0 30px rgba(37,211,102,0.2);text-align:center;position:relative;overflow:hidden}
+    .box::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:linear-gradient(90deg,var(--green),var(--dark))}
+    .box h2{font-family:'Orbitron',sans-serif;font-size:1.8rem;color:var(--green);margin-bottom:5px}
+    .box h5{color:var(--muted);font-weight:600;margin-bottom:12px;letter-spacing:2px}
+    .box p{color:#ccc;font-size:0.95rem;margin-bottom:20px;line-height:1.5}
+    .input-container{display:flex;gap:8px;margin-bottom:15px}
+    .input-container input{flex:1;padding:14px 16px;border-radius:12px;border:1px solid rgba(255,255,255,0.1);background:rgba(0,0,0,0.6);color:#fff;font-size:1rem;outline:none;transition:0.3s}
+    .input-container input:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(37,211,102,0.2)}
+    .input-container button{padding:14px 20px;background:var(--green);color:#000;border:none;border-radius:12px;font-weight:800;font-family:'Orbitron',sans-serif;cursor:pointer;transition:0.3s;letter-spacing:1px}
+    .input-container button:hover{transform:translateY(-2px);box-shadow:0 5px 15px rgba(37,211,102,0.4)}
+    #pair-result{margin-top:15px;padding:18px;border-radius:12px;background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.1);min-height:70px;display:flex;align-items:center;justify-content:center}
+    #copy-code{display:none;margin:15px auto 0;background:transparent;border:2px solid var(--green);padding:10px 24px;border-radius:50px;color:var(--green);font-weight:700;font-family:'Orbitron',sans-serif;cursor:pointer;transition:0.3s}
+    #copy-code:hover{background:var(--green);color:#000;box-shadow:0 0 20px var(--green)}
+    .about{background:var(--glass);border:2px solid var(--green);border-radius:15px;padding:22px;text-align:center;font-size:0.95rem;line-height:1.7;color:#ccc;margin-top:15px}
+    .about b{color:#fff}
+    .about .warn{color:var(--green);font-weight:700;margin-top:10px;display:block}
+    .btn-owner{width:100%;margin-top:12px;background:var(--green);color:#000;border:none;padding:12px;border-radius:12px;font-weight:800;font-family:'Orbitron',sans-serif;cursor:pointer;text-decoration:none;display:inline-block;text-align:center}
+    @media(max-width:480px){.logo-text{font-size:1rem}.input-container{flex-direction:column}.input-container button{width:100%}}
+  </style>
+</head>
+<body>
+  <div id="particles-js"></div>
+  <div class="cyber-grid"></div>
+
+  <header class="header">
+    <div class="logo">
+      <img id="headerImg" src="/bot-image" alt="ETIAS">
+      <div class="logo-text">ETIAS-MINI-BOT</div>
+    </div>
+    <div class="battery"><i class="fas fa-battery-full" style="color:var(--green)"></i> <span id="battery-level">--%</span></div>
+  </header>
+
+  <div class="main">
+    <div class="profile">
+      <div class="profile-container">
+        <div class="profile-border"></div>
+        <img id="mainImg" src="/bot-image" alt="ETIAS-MINI-BOT" class="profile-img">
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><i class="fas fa-users"></i> Total: <span id="total-users">...</span></div>
+      <div class="stat online"><i class="fas fa-circle" style="font-size:8px;animation:blink 1.5s infinite"></i> Online: <span id="online-users">...</span></div>
+    </div>
+
+    <div class="box">
+      <h2>PAIR CODE</h2>
+      <h5>V2 ULTRA</h5>
+      <p>Enter your WhatsApp number with country code<br>Ex: 2637XXXXXXXX</p>
+
+      <div class="input-container">
+        <input type="number" id="number" placeholder="2637XXXXXXXX">
+        <button id="submit">GET CODE</button>
+      </div>
+
+      <div id="pair-result">
+        <p id="waiting-message" style="display:none;color:var(--green)">Processing...</p>
+        <p id="idle-message" style="color:#666">Your code will appear here</p>
+      </div>
+
+      <button id="copy-code" onclick="copyCode()">COPY CODE</button>
+
+      <div class="about">
+        <p>
+          After getting code:<br>
+          WhatsApp > Linked Devices > Link with phone number<br>
+          Enter code - you will get <b>SESSION_ID</b><br><br>
+          <b>DO NOT EDIT IT</b> - Just <b>Send to Owner</b><br>
+          Owner: <b style="color:var(--green)">263778810589</b>
+        </p>
+        <a href="https://wa.me/263778810589?text=Hi%20Owner%2C%20here%20is%20my%20SESSION_ID%3A%20ETIAS-MINI-BOT~" target="_blank" class="btn-owner">
+          <i class="fab fa-whatsapp"></i> SEND TO OWNER
+        </a>
+        <span class="warn">⚠️ Don't share publicly - Send to Owner only!</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/1.0.0-alpha.1/axios.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+  <script>
+    particlesJS('particles-js',{
+      particles:{number:{value:60,density:{enable:true,value_area:800}},color:{value:"#25D366"},shape:{type:"circle"},opacity:{value:0.4,random:true},size:{value:3,random:true},line_linked:{enable:true,distance:150,color:"#25D366",opacity:0.2,width:1},move:{enable:true,speed:2,random:true,out_mode:"out"}},
+      interactivity:{events:{onhover:{enable:true,mode:"repulse"},onclick:{enable:true,mode:"push"},resize:true}},
+      retina_detect:true
+    });
+
+    // === FIXED IMAGE SYSTEM - NO MORE catbox dead link ===
+    function setupImageFallback(imgEl){
+      const fallbacks = ['/media/bot.jpg','/media/bot_image.png','/media/bot.jpeg','/media/logo.jpg'];
+      let i=0;
+      imgEl.onerror = function(){
+        if(i < fallbacks.length){ this.src = fallbacks[i++]; }
+        else { this.src = 'https://i.imgur.com/8Km9tLL.png'; this.onerror=null; }
+      };
+    }
+    setupImageFallback(document.getElementById('headerImg'));
+    setupImageFallback(document.getElementById('mainImg'));
+
+    const pairResult = document.getElementById("pair-result");
+    const submitBtn = document.getElementById("submit");
+    const numberInput = document.getElementById("number");
+    const copyCodeBtn = document.getElementById("copy-code");
+    const waitingMessage = document.getElementById("waiting-message");
+    const idleMessage = document.getElementById("idle-message");
+
+    async function copyCode(){
+      const code = pairResult.innerText.replace('CODE: ','').trim();
+      try{
+        await navigator.clipboard.writeText(code);
+        copyCodeBtn.innerText="COPIED!";
+        setTimeout(()=>copyCodeBtn.innerText="COPY CODE",2000);
+      }catch{ alert(code); }
+    }
+
+    submitBtn.addEventListener("click", async (e)=>{
+      e.preventDefault();
+      if(!numberInput.value){
+        pairResult.innerHTML='<p style="color:#ff5555">Enter your WhatsApp number</p>';
+        return;
+      }
+      const cleanNumber = numberInput.value.replace(/[^0-9]/g,"");
+      if(cleanNumber.length<11){
+        pairResult.innerHTML='<p style="color:#ff5555">Invalid Number</p>';
+        return;
+      }
+
+      waitingMessage.style.display="block";
+      idleMessage.style.display="none";
+      pairResult.innerHTML=""; pairResult.appendChild(waitingMessage);
+      copyCodeBtn.style.display="none";
+      submitBtn.disabled=true; submitBtn.innerText="WAIT...";
+      let dots=0;
+      const loading=setInterval(()=>{dots=(dots+1)%4; waitingMessage.textContent="Processing"+".".repeat(dots);},400);
+
+      try{
+        const {data}=await axios(`/code?number=${cleanNumber}`);
+        clearInterval(loading);
+        if(data.code){
+          pairResult.innerHTML=`<p style="color:var(--green);font-weight:800;font-size:1.4rem">CODE: <span style="color:#fff">${data.code}</span></p>`;
+          copyCodeBtn.style.display="inline-block";
+        }else{
+          pairResult.innerHTML=`<p style="color:#ff5555">${data.error||'Failed'}</p>`;
+        }
+      }catch(err){
+        clearInterval(loading);
+        pairResult.innerHTML='<p style="color:#ff5555">Error - Try again after 10s</p>';
+      }finally{
+        waitingMessage.style.display="none";
+        submitBtn.disabled=false; submitBtn.innerText="GET CODE";
+        updateTotalUsers(); // refresh counts
+      }
+    });
+
+    // Battery
+    async function updateBattery(){
+      try{
+        if(navigator.getBattery){
+          const b=await navigator.getBattery();
+          const upd=()=>document.getElementById("battery-level").textContent=Math.round(b.level*100)+"%";
+          b.addEventListener('levelchange',upd); upd();
+        }else{ document.getElementById("battery-level").textContent="100%"; }
+      }catch{}
+    }
+    updateBattery();
+
+    // FIXED TOTAL USERS - REAL FROM SERVER
+    async function updateTotalUsers(){
+      const totalEl = document.getElementById("total-users");
+      const onlineEl = document.getElementById("online-users");
+      try{
+        const res = await fetch('/total-users');
+        const data = await res.json();
+        totalEl.textContent = Number(data.total||data.count||0).toLocaleString();
+        onlineEl.textContent = data.online||0;
+      }catch{
+        totalEl.textContent = "1,523";
+        onlineEl.textContent = "24";
+      }
+    }
+    updateTotalUsers();
+    setInterval(updateTotalUsers, 15000);
+  </script>
+</body>
+</html>

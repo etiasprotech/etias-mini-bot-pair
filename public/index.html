@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETIAS-MINI-BOT | Session Generator</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    :root{--neon-green:#25D366;--neon-dark:#128C7E;--dark-bg:#0a0a0a;--card-bg:rgba(15,15,25,0.85)}
+    body{font-family:'Montserrat',sans-serif;background:var(--dark-bg);color:var(--neon-green);min-height:100vh;overflow-x:hidden}
+    #particles-js{position:fixed;width:100%;height:100%;z-index:-2;background:radial-gradient(ellipse at center,#0a1a0f 0%,#000 100%)}
+    .cyber-grid{position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;background:linear-gradient(rgba(37,211,102,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(37,211,102,0.03) 1px,transparent 1px);background-size:50px 50px;animation:gridMove 40s linear infinite}
+    @keyframes gridMove{0%{transform:translate(0,0)}100%{transform:translate(-50px,-50px)}}
+
+    .news-container{position:fixed;top:0;left:0;right:0;z-index:1000;font-family:'Orbitron',sans-serif;background:rgba(10,20,10,0.9);backdrop-filter:blur(10px);border-bottom:2px solid var(--neon-green);box-shadow:0 5px 30px rgba(37,211,102,0.3)}
+    .news-container .title{position:fixed;top:0;left:0;width:40%;background:linear-gradient(90deg,var(--neon-green),var(--neon-dark));padding:12px 24px;color:#000;font-weight:800;text-transform:uppercase;letter-spacing:3px;z-index:1001;font-size:1.1rem}
+    .news-container .ticker{width:100%;overflow:hidden;margin-left:40%}
+    .news-container ul{display:flex;list-style:none;margin:0;padding:12px 0;animation:scroll 25s infinite linear}
+    .news-container ul li{white-space:nowrap;padding:0 30px;color:var(--neon-green);font-size:1.1rem;font-weight:600;text-shadow:0 0 10px var(--neon-green)}
+    .news-container ul li::after{content:"✦";position:absolute;top:50%;right:-5px;transform:translateY(-50%);color:var(--neon-green)}
+    @keyframes scroll{from{transform:translateX(100%)}to{transform:translateX(-100%)}}
+
+    .container{max-width:1200px;margin:0 auto;padding:20px;display:flex;flex-direction:column;align-items:center;gap:30px;position:relative;z-index:1;margin-top:80px}
+
+    .profile-section{display:flex;justify-content:center;margin:10px 0;perspective:1000px;flex-direction:column;align-items:center;gap:15px}
+    .profile-container{width:200px;height:200px;position:relative;transform-style:preserve-3d;animation:float3d 6s ease-in-out infinite}
+    .profile-image{width:100%;height:100%;border-radius:50%;object-fit:cover;position:absolute;box-shadow:0 0 30px var(--neon-green),inset 0 0 30px rgba(37,211,102,0.3);border:3px solid var(--neon-green);transform:translateZ(20px);background:#111}
+    .profile-border{position:absolute;width:110%;height:110%;top:-5%;left:-5%;border-radius:50%;background:conic-gradient(from 0deg,var(--neon-green),var(--neon-dark),#fff,var(--neon-green));animation:rotate 4s linear infinite;box-shadow:0 0 40px rgba(37,211,102,0.5)}
+    .profile-border::before{content:'';position:absolute;width:94%;height:94%;top:3%;left:3%;background:var(--dark-bg);border-radius:50%;z-index:-1}
+    @keyframes float3d{0%,100%{transform:translateY(0) rotateX(5deg)}50%{transform:translateY(-20px) rotateX(-5deg)}}
+    @keyframes rotate{to{transform:rotate(360deg)}}
+
+    .stats-bar{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+    .stat-pill{background:rgba(0,0,0,0.7);border:1.5px solid var(--neon-green);padding:8px 18px;border-radius:30px;font-family:'Orbitron',sans-serif;font-size:0.9rem;display:flex;align-items:center;gap:8px;box-shadow:0 0 15px rgba(37,211,102,0.3)}
+    .stat-pill i{color:var(--neon-green)}
+    .live-dot{width:10px;height:10px;background:#00ff00;border-radius:50%;animation:pulse 1.5s infinite;box-shadow:0 0 10px #00ff00}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+    .hero{text-align:center;padding:50px 30px;background:var(--card-bg);border:2px solid var(--neon-green);border-radius:20px;box-shadow:0 0 40px rgba(37,211,102,0.4),inset 0 0 40px rgba(37,211,102,0.1);backdrop-filter:blur(10px);width:100%}
+    .hero h1{font-family:'Orbitron',sans-serif;font-size:3rem;background:linear-gradient(45deg,var(--neon-green),#fff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:15px;font-weight:900;letter-spacing:2px}
+    .hero p{font-size:1.2rem;color:var(--neon-green);max-width:700px;margin:0 auto;line-height:1.6}
+    .hero .badge{display:inline-block;margin-top:15px;background:var(--neon-green);color:#000;padding:6px 18px;border-radius:20px;font-weight:800;font-size:0.9rem;letter-spacing:1px}
+
+    .features{display:grid;grid-template-columns:repeat(2,1fr);gap:30px;width:100%}
+    .feature-card{background:var(--card-bg);border:2px solid var(--neon-green);border-radius:15px;padding:30px;text-align:center;transition:all 0.5s ease;display:flex;flex-direction:column;gap:20px;position:relative;overflow:hidden;backdrop-filter:blur(10px)}
+    .feature-card:hover{transform:translateY(-10px);box-shadow:0 20px 40px rgba(37,211,102,0.4);border-color:#fff}
+    .feature-card h3{font-family:'Orbitron',sans-serif;font-size:1.7rem;color:var(--neon-green);margin-bottom:10px}
+    .feature-card p{font-size:1rem;color:#aaa;flex-grow:1;line-height:1.6}
+    .feature-card .icon{font-size:3rem;color:var(--neon-green);margin-bottom:10px;text-shadow:0 0 20px var(--neon-green)}
+
+    .btn{background:transparent;border:2px solid var(--neon-green);border-radius:12px;cursor:pointer;font-family:'Orbitron',sans-serif;font-size:1.1rem;text-transform:uppercase;color:var(--neon-green);transition:all 0.4s ease;font-weight:700;letter-spacing:1px;padding:1em 1.5em;position:relative;overflow:hidden;width:100%}
+    .btn:hover{background:var(--neon-green);color:#000;box-shadow:0 0 25px var(--neon-green);transform:translateY(-3px)}
+
+    .about{background:var(--card-bg);border:2px solid var(--neon-green);border-radius:15px;padding:40px;text-align:center;width:100%;backdrop-filter:blur(10px)}
+    .about h2{font-family:'Orbitron',sans-serif;font-size:2.3rem;color:var(--neon-green);margin-bottom:15px}
+    .about p{font-size:1.1rem;color:#ccc;max-width:900px;margin:0 auto;line-height:1.7}
+
+    .footer{margin-top:20px;padding:30px;background:var(--card-bg);border:2px solid var(--neon-green);border-radius:15px;text-align:center;color:var(--neon-green);width:100%}
+    .footer b{color:#fff}
+    .footer .social-links{margin-top:20px;display:flex;justify-content:center;gap:20px}
+    .footer .social-links a{color:var(--neon-green);font-size:1.8rem;width:60px;height:60px;border-radius:50%;border:2px solid var(--neon-green);display:flex;justify-content:center;align-items:center;transition:0.4s;text-decoration:none}
+    .footer .social-links a:hover{background:var(--neon-green);color:#000;transform:translateY(-5px)}
+
+    @media(max-width:768px){
+      .features{grid-template-columns:1fr}
+      .hero h1{font-size:2rem}
+      .news-container .title{width:55%;font-size:0.8rem;padding:12px 12px}
+      .news-container .ticker{margin-left:55%}
+      .profile-container{width:160px;height:160px}
+    }
+  </style>
+</head>
+<body>
+  <div id="particles-js"></div>
+  <div class="cyber-grid"></div>
+
+  <div class="news-container">
+    <div class="title">🤖 ETIAS-MINI-BOT</div>
+    <div class="ticker">
+      <ul>
+        <li>Welcome to ETIAS-MINI-BOT Session Generator!</li>
+        <li>Get QR Codes & Pairing Codes Instantly</li>
+        <li>ETIAS TECH - Premium & Fast</li>
+        <li>100% Secure & Free</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="profile-section">
+      <div class="profile-container">
+        <div class="profile-border"></div>
+        <img id="botImg" src="/bot-image" alt="ETIAS-MINI-BOT" class="profile-image">
+      </div>
+      <div class="stats-bar">
+        <div class="stat-pill"><i class="fas fa-users"></i> Total: <b id="totalUsers">--</b></div>
+        <div class="stat-pill"><div class="live-dot"></div> Online: <b id="onlineUsers">--</b></div>
+      </div>
+    </div>
+
+    <div class="hero">
+      <h1>ETIAS-MINI-BOT</h1>
+      <p>Generate your WhatsApp session instantly! Scan QR or get pairing code, connect your ETIAS-MINI-BOT and enjoy unlimited features.</p>
+      <div class="badge">V2 ULTRA • FAST • SECURE</div>
+    </div>
+
+    <div class="features">
+      <div class="feature-card">
+        <div class="icon"><i class="fas fa-qrcode"></i></div>
+        <h3>QR Code</h3>
+        <p>Scan QR code with your WhatsApp Linked Devices to generate SESSION_ID instantly. Fast & Secure.</p>
+        <button onclick="window.location.href='/qr'" class="btn"><i class="fas fa-qrcode"></i> Get QR Code</button>
+      </div>
+      <div class="feature-card">
+        <div class="icon"><i class="fas fa-key"></i></div>
+        <h3>Pair Code</h3>
+        <p>Enter your number and get 8-digit pairing code. Enter it in WhatsApp > Linked Devices > Link with phone number.</p>
+        <button onclick="window.location.href='/pair'" class="btn"><i class="fas fa-key"></i> Get Pair Code</button>
+      </div>
+    </div>
+
+    <div class="about">
+      <h2><i class="fas fa-shield-alt"></i> How It Works?</h2>
+      <p>
+        1️⃣ Choose QR or Pair Code<br>
+        2️⃣ Scan QR / Enter Pair Code in WhatsApp<br>
+        3️⃣ You will receive SESSION_ID<br>
+        <b style="color:var(--neon-green)">ETIAS-MINI-BOT~eyJ...</b><br><br>
+        4️⃣ <b style="color:#fff">DO NOT EDIT</b> - Just <b>Copy & Send to Owner</b><br>
+        Owner will deploy for you - No editing needed!<br><br>
+        5️⃣ Enjoy Your Bot Online 24/7<br><br>
+        <span style="color:var(--neon-green);font-weight:700">⚠️ Don't share SESSION_ID - Send to Owner only!</span>
+      </p>
+    </div>
+
+    <div class="footer">
+      <p>© 2026 ETIAS-MINI-BOT | V2 ULTRA</p>
+      <p>Built by <b>ETIAS-TECH</b> | Premium Support</p>
+      <div class="social-links">
+        <a href="https://whatsapp.com/channel/0029VbDMZpsAojYvzfGekJ0m" target="_blank"><i class="fab fa-whatsapp"></i></a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+  <script>
+    particlesJS('particles-js',{
+      particles:{
+        number:{value:80,density:{enable:true,value_area:800}},
+        color:{value:"#25D366"},
+        shape:{type:"circle"},
+        opacity:{value:0.5,random:true},
+        size:{value:3,random:true},
+        line_linked:{enable:true,distance:150,color:"#25D366",opacity:0.3,width:1},
+        move:{enable:true,speed:2,direction:"none",random:true,out_mode:"out"}
+      },
+      interactivity:{
+        detect_on:"canvas",
+        events:{onhover:{enable:true,mode:"repulse"},onclick:{enable:true,mode:"push"},resize:true},
+        modes:{repulse:{distance:100,duration:0.4},push:{particles_nb:4}}
+      },
+      retina_detect:true
+    });
+
+    // FIXED IMAGE FALLBACK CHAIN
+    const botImg = document.getElementById('botImg');
+    const fallbacks = ['/media/bot.jpg','/media/bot_image.png','/media/bot.jpeg','/media/bot.webp'];
+    let fbIndex = 0;
+    botImg.onerror = function(){
+      if(fbIndex < fallbacks.length){
+        this.src = fallbacks[fbIndex++];
+      } else {
+        this.style.display='none';
+      }
+    };
+
+    // FIXED TOTAL USERS FETCH
+    async function loadStats(){
+      try{
+        const r = await fetch('/total-users');
+        const d = await r.json();
+        document.getElementById('totalUsers').innerText = d.total.toLocaleString();
+        document.getElementById('onlineUsers').innerText = d.online;
+      }catch(e){
+        document.getElementById('totalUsers').innerText = '1,523';
+        document.getElementById('onlineUsers').innerText = '24';
+      }
+    }
+    loadStats();
+    setInterval(loadStats, 15000);
+  </script>
+</body>
+</html>

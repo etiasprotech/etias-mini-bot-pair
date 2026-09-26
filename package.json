@@ -1,0 +1,35 @@
+{
+  "name": "etias-mini-bot-pair",
+  "version": "2.0.0",
+  "description": "ETIAS-MINI-BOT Session Generator - QR & Pair Code - V2 ULTRA",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "whatsapp-bot",
+    "baileys",
+    "pair-code",
+    "qr-code",
+    "etias-mini-bot"
+  ],
+  "author": "ETIAS-TECH",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.24",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "pino": "^8.21.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "type": "commonjs"
+}
