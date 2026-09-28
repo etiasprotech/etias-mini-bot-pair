@@ -205,8 +205,8 @@
         totalEl.textContent = Number(data.total||data.count||0).toLocaleString();
         onlineEl.textContent = data.online||0;
       }catch{
-        totalEl.textContent = "1,523";
-        onlineEl.textContent = "24";
+        totalEl.textContent = "Unknown";
+        onlineEl.textContent = "Unknown";
       }
     }
     updateTotalUsers();
@@ -214,3 +214,5 @@
   </script>
 </body>
 </html>
+
+
