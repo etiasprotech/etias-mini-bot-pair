@@ -177,19 +177,16 @@
     };
 
     // FIXED TOTAL USERS FETCH
-    async function loadStats(){
-      try{
-        const r = await fetch('/total-users');
-        const d = await r.json();
-        document.getElementById('totalUsers').innerText = d.total.toLocaleString();
-        document.getElementById('onlineUsers').innerText = d.online;
-      }catch(e){
-        document.getElementById('totalUsers').innerText = '1,523';
-        document.getElementById('onlineUsers').innerText = '24';
-      }
-    }
-    loadStats();
-    setInterval(loadStats, 15000);
+    // In your index.html script
+
+async function updateStats(){
+  const res = await fetch('/total-users');
+  const data = await res.json();
+  document.getElementById('totalUsers').textContent = data.total;
+  document.getElementById('onlineUsers').textContent = data.online;
+}
+setInterval(updateStats, 5000);
+updateStats();
   </script>
 </body>
 </html>
