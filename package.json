@@ -17,10 +17,10 @@
   "author": "ETIAS-TECH",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.24",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
+    "express": "^4.22.3",
     "pino": "^8.21.0",
     "qrcode": "^1.5.4"
   },
