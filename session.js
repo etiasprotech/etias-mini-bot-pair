@@ -1,567 +1,1118 @@
-"use strict";
+// ============================================================
+// ETIAS-MINI-BOT
+// SESSION GENERATOR
+//
+// Generates the COMPLETE multi-file Baileys auth session,
+// converts it to:
+//      TAR -> GZIP -> BASE64
+//
+// Then creates a JSON file named:
+//      creds.json
+//
+// The JSON file contains the COMPLETE SESSION_ID.
+//
+// The session is sent to WhatsApp as a DOCUMENT,
+// NOT as a normal text message.
+//
+// This prevents WhatsApp from truncating long sessions.
+// ============================================================
 
 const fs = require("fs");
-const fsp = fs.promises;
+const fsp = require("fs/promises");
 const path = require("path");
 const crypto = require("crypto");
-const { execFile } = require("child_process");
-const { promisify } = require("util");
+const zlib = require("zlib");
+const { execFileSync } = require("child_process");
 
-const execFileAsync = promisify(execFile);
 
-const ROOT = __dirname;
+// ============================================================
+// CONFIG
+// ============================================================
 
-const TEMP_AUTH_DIR =
-    path.join(ROOT, "temp_auth");
-
-const SESSION_PREFIX =
+const PREFIX_SESSION =
     "ETIAS-MINI-BOT~";
 
-/*
- * =========================================================
- * UTILITIES
- * =========================================================
- */
-
-function sleep(ms) {
-    return new Promise(resolve =>
-        setTimeout(resolve, ms)
+const TEMP_AUTH_PATH =
+    path.join(
+        __dirname,
+        "temp_auth"
     );
+
+const SESSION_FILES_PATH =
+    path.join(
+        __dirname,
+        "data",
+        "sessions"
+    );
+
+
+// ============================================================
+// CREATE DIRECTORIES
+// ============================================================
+
+for (
+    const dir of [
+        TEMP_AUTH_PATH,
+        SESSION_FILES_PATH
+    ]
+) {
+
+    if (
+        !fs.existsSync(dir)
+    ) {
+
+        fs.mkdirSync(
+            dir,
+            {
+                recursive: true
+            }
+        );
+
+    }
+
 }
 
-async function ensureTempDir() {
-    await fsp.mkdir(
-        TEMP_AUTH_DIR,
-        {
-            recursive: true
-        }
+
+// ============================================================
+// LOG
+// ============================================================
+
+function log(message) {
+
+    console.log(
+        `[SESSION] ${message}`
     );
+
 }
+
+
+// ============================================================
+// NORMALIZE JID
+// ============================================================
 
 function normalizeJid(value) {
+
     if (!value) {
-        return null;
+
+        return "";
+
     }
 
-    let jid = String(value).trim();
+    return String(value)
+        .split(":")[0]
+        .split("@")[0]
+        .replace(
+            /[^0-9]/g,
+            ""
+        );
 
-    /*
-     * Baileys may return:
-     *
-     * 263778810589:49@s.whatsapp.net
-     *
-     * For DM delivery we normalize it to:
-     *
-     * 263778810589@s.whatsapp.net
-     */
-    if (jid.includes(":")) {
-        const atIndex =
-            jid.indexOf("@");
-
-        if (atIndex !== -1) {
-            const user =
-                jid.slice(
-                    0,
-                    atIndex
-                );
-
-            const server =
-                jid.slice(
-                    atIndex + 1
-                );
-
-            jid =
-                `${user.split(":")[0]}@${server}`;
-        }
-    }
-
-    if (!jid.includes("@")) {
-        jid =
-            `${jid.replace(/\D/g, "")}@s.whatsapp.net`;
-    }
-
-    return jid;
 }
 
-/*
- * =========================================================
- * AUTH SNAPSHOT
- * =========================================================
- *
- * Baileys may still be changing files in the live
- * auth directory.
- *
- * Therefore:
- *
- * LIVE AUTH
- *    ↓
- * SNAPSHOT
- *    ↓
- * TAR
- *    ↓
- * GZIP
- *    ↓
- * BASE64
- *
- * This prevents:
- *
- * tar: .: file changed as we read it
- */
+
+// ============================================================
+// CREATE STABLE AUTH SNAPSHOT
+//
+// Baileys may modify auth files while TAR is reading them.
+// Therefore we first copy the complete auth folder to a
+// temporary snapshot.
+//
+// This prevents:
+//
+//     tar: file changed as we read it
+//
+// ============================================================
 
 async function createAuthSnapshot(
     authFolder
 ) {
-    await ensureTempDir();
 
-    if (!authFolder) {
+    if (
+        !fs.existsSync(authFolder)
+    ) {
+
         throw new Error(
-            "Auth folder is missing"
+            "Auth folder does not exist"
         );
+
     }
 
-    if (!fs.existsSync(authFolder)) {
-        throw new Error(
-            `Auth folder does not exist: ${authFolder}`
+
+    const credsPath =
+        path.join(
+            authFolder,
+            "creds.json"
         );
+
+
+    if (
+        !fs.existsSync(credsPath)
+    ) {
+
+        throw new Error(
+            "creds.json not found in auth folder"
+        );
+
     }
+
 
     const snapshotName =
-        `snapshot_${crypto.randomBytes(8).toString("hex")}`;
+        `snapshot-${Date.now()}-${crypto.randomBytes(6).toString("hex")}`;
 
-    const snapshotFolder =
+
+    const snapshotPath =
         path.join(
-            TEMP_AUTH_DIR,
+            TEMP_AUTH_PATH,
             snapshotName
         );
 
+
     await fsp.mkdir(
-        snapshotFolder,
+        snapshotPath,
         {
             recursive: true
         }
     );
 
-    console.log(
-        "[SESSION] Creating stable auth snapshot..."
-    );
 
-    await fsp.cp(
-        authFolder,
-        snapshotFolder,
-        {
-            recursive: true,
-            force: true,
-            errorOnExist: false
-        }
-    );
+    try {
 
-    const credsPath =
-        path.join(
-            snapshotFolder,
-            "creds.json"
-        );
-
-    if (!fs.existsSync(credsPath)) {
-
-        await fsp.rm(
-            snapshotFolder,
+        await fsp.cp(
+            authFolder,
+            snapshotPath,
             {
                 recursive: true,
                 force: true
             }
         );
 
-        throw new Error(
-            "creds.json not found in auth snapshot"
-        );
+
+        if (
+            !fs.existsSync(
+                path.join(
+                    snapshotPath,
+                    "creds.json"
+                )
+            )
+        ) {
+
+            throw new Error(
+                "Snapshot does not contain creds.json"
+            );
+
+        }
+
+
+        return snapshotPath;
+
+    } catch (error) {
+
+        try {
+
+            await fsp.rm(
+                snapshotPath,
+                {
+                    recursive: true,
+                    force: true
+                }
+            );
+
+        } catch {}
+
+
+        throw error;
+
     }
 
-    return snapshotFolder;
 }
 
-/*
- * =========================================================
- * CREATE SINGLE SESSION_ID
- * =========================================================
- *
- * The complete auth directory becomes ONE:
- *
- * ETIAS-MINI-BOT~BASE64...
- *
- * No splitting happens here.
- */
+
+// ============================================================
+// CREATE SESSION BUNDLE
+//
+// COMPLETE AUTH DIRECTORY
+//          |
+//          v
+//       TAR FILE
+//          |
+//          v
+//      GZIP FILE
+//          |
+//          v
+//       BASE64
+//          |
+//          v
+// ETIAS-MINI-BOT~BASE64
+//
+// Returns the COMPLETE session string.
+// ============================================================
 
 async function createSessionBundle(
     authFolder
 ) {
-    console.log(
-        "[SESSION] Creating full auth archive..."
-    );
 
-    const snapshotFolder =
-        await createAuthSnapshot(
-            authFolder
-        );
+    let snapshotPath = null;
 
-    const archiveId =
-        crypto.randomBytes(8).toString("hex");
+    const random =
+        crypto
+            .randomBytes(8)
+            .toString("hex");
+
 
     const tarPath =
         path.join(
-            TEMP_AUTH_DIR,
-            `${archiveId}.tar`
+            TEMP_AUTH_PATH,
+            `session-${random}.tar`
         );
+
 
     const gzipPath =
         `${tarPath}.gz`;
 
+
     try {
 
-        /*
-         * TAR
-         */
-        console.log(
-            "[SESSION] Creating TAR archive..."
+        log(
+            "Creating stable auth snapshot..."
         );
 
-        await execFileAsync(
+
+        snapshotPath =
+            await createAuthSnapshot(
+                authFolder
+            );
+
+
+        log(
+            "Creating TAR archive..."
+        );
+
+
+        execFileSync(
             "tar",
             [
                 "-cf",
                 tarPath,
                 "-C",
-                snapshotFolder,
+                snapshotPath,
                 "."
-            ]
+            ],
+            {
+                stdio: "ignore"
+            }
         );
 
-        /*
-         * GZIP
-         */
-        console.log(
-            "[SESSION] Compressing archive..."
+
+        if (
+            !fs.existsSync(tarPath)
+        ) {
+
+            throw new Error(
+                "TAR archive was not created"
+            );
+
+        }
+
+
+        log(
+            "Compressing session..."
         );
 
-        await execFileAsync(
+
+        execFileSync(
             "gzip",
             [
                 "-f",
                 tarPath
-            ]
+            ],
+            {
+                stdio: "ignore"
+            }
         );
 
+
         if (
-            !fs.existsSync(
-                gzipPath
-            )
+            !fs.existsSync(gzipPath)
         ) {
+
             throw new Error(
                 "GZIP archive was not created"
             );
+
         }
 
-        /*
-         * BASE64
-         */
-        console.log(
-            "[SESSION] Encoding complete archive..."
-        );
 
-        const archiveBuffer =
+        const compressed =
             await fsp.readFile(
                 gzipPath
             );
 
+
+        if (
+            !compressed.length
+        ) {
+
+            throw new Error(
+                "Generated session archive is empty"
+            );
+
+        }
+
+
         const base64 =
-            archiveBuffer.toString(
+            compressed.toString(
                 "base64"
             );
 
-        if (!base64) {
+
+        if (
+            !base64.length
+        ) {
+
             throw new Error(
-                "Base64 archive is empty"
+                "Generated Base64 session is empty"
             );
+
         }
 
-        /*
-         * ONE SESSION ID
-         */
+
         const sessionId =
-            SESSION_PREFIX +
+            PREFIX_SESSION +
             base64;
 
-        console.log(
-            "========================================"
+
+        log(
+            `SESSION_ID generated: ${sessionId.length} characters`
         );
 
-        console.log(
-            "🔐 SESSION_ID GENERATED"
-        );
-
-        console.log(
-            `Archive size: ${archiveBuffer.length} bytes`
-        );
-
-        console.log(
-            `SESSION_ID length: ${sessionId.length} characters`
-        );
-
-        console.log(
-            "========================================"
-        );
 
         return sessionId;
 
     } finally {
 
-        /*
-         * Remove temporary snapshot.
-         */
-        await fsp.rm(
-            snapshotFolder,
-            {
-                recursive: true,
-                force: true
-            }
-        ).catch(() => {});
+        try {
 
-        /*
-         * Remove TAR.
-         */
-        await fsp.rm(
-            tarPath,
-            {
-                force: true
-            }
-        ).catch(() => {});
+            await fsp.rm(
+                tarPath,
+                {
+                    force: true
+                }
+            );
 
-        /*
-         * Remove GZIP.
-         */
-        await fsp.rm(
-            gzipPath,
-            {
-                force: true
-            }
-        ).catch(() => {});
+        } catch {}
+
+
+        try {
+
+            await fsp.rm(
+                gzipPath,
+                {
+                    force: true
+                }
+            );
+
+        } catch {}
+
+
+        if (
+            snapshotPath
+        ) {
+
+            try {
+
+                await fsp.rm(
+                    snapshotPath,
+                    {
+                        recursive: true,
+                        force: true
+                    }
+                );
+
+            } catch {}
+
+        }
+
     }
+
 }
 
-/*
- * =========================================================
- * FIRST MESSAGE
- * =========================================================
- */
+
+// ============================================================
+// CREATE SESSION JSON
+//
+// This creates:
+//
+// data/sessions/NUMBER/creds.json
+//
+// Example:
+//
+// {
+//   "sessionId": "ETIAS-MINI-BOT~....",
+//   "number": "2637...",
+//   "pairId": "...",
+//   "createdAt": "..."
+// }
+//
+// IMPORTANT:
+// This is the generated ETIAS SESSION_ID file.
+// It is NOT the original Baileys creds.json.
+// ============================================================
+
+async function createSessionFile(
+    sessionId,
+    number,
+    pairingId
+) {
+
+    const cleanNumber =
+        normalizeJid(
+            number
+        ) ||
+        "unknown";
+
+
+    const userDirectory =
+        path.join(
+            SESSION_FILES_PATH,
+            cleanNumber
+        );
+
+
+    await fsp.mkdir(
+        userDirectory,
+        {
+            recursive: true
+        }
+    );
+
+
+    const filePath =
+        path.join(
+            userDirectory,
+            "creds.json"
+        );
+
+
+    const payload = {
+
+        sessionId,
+
+        number:
+            cleanNumber,
+
+        pairId:
+            pairingId ||
+            null,
+
+        createdAt:
+            new Date().toISOString(),
+
+        format:
+            "ETIAS-MINI-BOT-SESSION",
+
+        version:
+            1
+
+    };
+
+
+    await fsp.writeFile(
+        filePath,
+        JSON.stringify(
+            payload,
+            null,
+            2
+        ),
+        "utf8"
+    );
+
+
+    log(
+        `Session file created: ${filePath}`
+    );
+
+
+    return {
+
+        filePath,
+
+        payload
+
+    };
+
+}
+
+
+// ============================================================
+// READ SESSION FILE
+//
+// Useful if another part of the application needs to load
+// a previously generated creds.json.
+// ============================================================
+
+async function readSessionFile(
+    filePath
+) {
+
+    if (
+        !fs.existsSync(filePath)
+    ) {
+
+        throw new Error(
+            "Session file not found"
+        );
+
+    }
+
+
+    const raw =
+        await fsp.readFile(
+            filePath,
+            "utf8"
+        );
+
+
+    let data;
+
+
+    try {
+
+        data =
+            JSON.parse(raw);
+
+    } catch {
+
+        /*
+         * Also support a file containing
+         * only the raw session string.
+         */
+
+        const session =
+            raw.trim();
+
+
+        if (
+            session.startsWith(
+                PREFIX_SESSION
+            )
+        ) {
+
+            return session;
+
+        }
+
+
+        throw new Error(
+            "Invalid session JSON file"
+        );
+
+    }
+
+
+    if (
+        typeof data.sessionId !==
+        "string"
+    ) {
+
+        throw new Error(
+            "creds.json does not contain sessionId"
+        );
+
+    }
+
+
+    if (
+        !data.sessionId.startsWith(
+            PREFIX_SESSION
+        )
+    ) {
+
+        throw new Error(
+            "Invalid ETIAS-MINI-BOT sessionId"
+        );
+
+    }
+
+
+    return data.sessionId;
+
+}
+
+
+// ============================================================
+// SEND CONNECTED MESSAGE
+//
+// This is the first WhatsApp message.
+//
+// No session data is placed in this message.
+// ============================================================
 
 async function sendConnectedMessage(
     sock,
     jid,
     pairingId
 ) {
-    const message =
-`*ETIAS-MINI-BOT CONNECTED ✅*
 
-Your WhatsApp account has been successfully connected.
+    if (!jid) {
+
+        throw new Error(
+            "WhatsApp JID is required"
+        );
+
+    }
+
+
+    const text =
+
+`*ETIAS-MINI-BOT*
 
 ━━━━━━━━━━━━━━━━━━━━
 
-*SESSION INFORMATION*
+✅ *WHATSAPP CONNECTED*
 
-Your SESSION_ID will be sent in the next message.
+PAIR ID:
+${pairingId || "N/A"}
 
-The SESSION_ID contains the complete authentication data required by your bot.
+STATUS:
+CONNECTED ✅
+
+Your SESSION_ID has been generated.
+
+It will be sent as a secure file named:
+
+📄 creds.json
 
 ━━━━━━━━━━━━━━━━━━━━
 
-*IMPORTANT*
+⚠️ *IMPORTANT*
 
-• Keep your SESSION_ID private.
+• Keep the file private.
 • Do not post it publicly.
 • Do not send it to unknown people.
-• Anyone who obtains valid authentication data may be able to access the associated session.
+• Anyone with valid authentication data may access the associated session.
 
 ━━━━━━━━━━━━━━━━━━━━
 
-*PAIR ID:* ${pairingId}
+Powered by ETIAS TECH`;
 
-*STATUS:* CONNECTED ✅
-
-Your SESSION_ID is coming next.`;
 
     await sock.sendMessage(
         jid,
         {
-            text: message
+            text
         }
     );
 
-    console.log(
-        `[SESSION] ✅ Connection instructions sent to ${jid}`
+
+    log(
+        `Connected message sent to ${jid}`
     );
 
-    await sleep(1200);
 }
 
-/*
- * =========================================================
- * SECOND MESSAGE — ONE SESSION_ID
- * =========================================================
- */
+
+// ============================================================
+// SEND SESSION FILE
+//
+// The SESSION_ID is sent as a WhatsApp DOCUMENT.
+//
+// Filename:
+//
+//     creds.json
+//
+// MIME:
+//
+//     application/json
+//
+// Therefore even a very long session is transferred as a
+// document instead of being restricted by WhatsApp's normal
+// text-message length.
+// ============================================================
 
 async function sendSessionMessage(
     sock,
     sessionId,
     jid,
-    pairingId
+    pairingId,
+    number
 ) {
+
+    if (!sock) {
+
+        throw new Error(
+            "WhatsApp socket is required"
+        );
+
+    }
+
+
     if (!sessionId) {
+
         throw new Error(
             "SESSION_ID is empty"
         );
+
     }
+
+
+    if (!jid) {
+
+        throw new Error(
+            "WhatsApp JID is required"
+        );
+
+    }
+
+
+    /*
+     * Validate session.
+     */
 
     if (
         !sessionId.startsWith(
-            SESSION_PREFIX
+            PREFIX_SESSION
         )
     ) {
+
         throw new Error(
-            "Invalid SESSION_ID prefix"
+            "Invalid ETIAS-MINI-BOT SESSION_ID"
         );
+
     }
 
-    const targetJid =
-        normalizeJid(jid);
-
-    if (!targetJid) {
-        throw new Error(
-            "Invalid WhatsApp JID"
-        );
-    }
 
     /*
-     * IMPORTANT:
-     *
-     * The complete SESSION_ID is sent as ONE
-     * WhatsApp message.
-     *
-     * No chunking.
-     * No PART 1.
-     * No PART 2.
+     * Create the JSON object.
      */
 
-    const message =
-`${sessionId}`;
+    const payload = {
 
-    console.log(
-        `[SESSION] 📤 Sending ONE SESSION_ID message to ${targetJid}`
+        sessionId,
+
+        number:
+            normalizeJid(
+                number ||
+                jid
+            ),
+
+        pairId:
+            pairingId ||
+            null,
+
+        createdAt:
+            new Date().toISOString(),
+
+        format:
+            "ETIAS-MINI-BOT-SESSION",
+
+        version:
+            1
+
+    };
+
+
+    /*
+     * Convert JSON to a Buffer.
+     *
+     * Buffer is important because it sends the
+     * complete file directly.
+     */
+
+    const json =
+        JSON.stringify(
+            payload,
+            null,
+            2
+        );
+
+
+    const documentBuffer =
+        Buffer.from(
+            json,
+            "utf8"
+        );
+
+
+    log(
+        `Sending creds.json (${documentBuffer.length} bytes)...`
     );
 
-    console.log(
-        `[SESSION] SESSION_ID length: ${sessionId.length}`
-    );
+
+    /*
+     * Send as WhatsApp document.
+     */
 
     await sock.sendMessage(
-        targetJid,
+        jid,
         {
-            text: message
+
+            document:
+                documentBuffer,
+
+            mimetype:
+                "application/json",
+
+            fileName:
+                "creds.json",
+
+            caption:
+                `🔐 *ETIAS-MINI-BOT SESSION*\n\n` +
+                `📄 File: creds.json\n` +
+                `📱 Number: ${normalizeJid(number || jid)}\n` +
+                `🆔 Pair ID: ${pairingId || "N/A"}\n\n` +
+                `⚠️ Keep this file private.\n` +
+                `Do not forward or publish it.`
+
         }
     );
 
-    console.log(
-        `[SESSION] 🎉 Single SESSION_ID message delivered to ${targetJid}`
+
+    log(
+        "✅ creds.json sent successfully"
     );
 
+
     return true;
+
 }
 
-/*
- * =========================================================
- * COMPLETE DELIVERY
- * =========================================================
- */
+
+// ============================================================
+// SEND COMPLETE SESSION
+//
+// EXACTLY TWO MESSAGES:
+//
+// 1. Connected message
+// 2. creds.json document
+//
+// No long session text is sent.
+// No PART messages are required.
+// ============================================================
 
 async function sendSessionToWhatsApp(
     sock,
     sessionId,
     jid,
-    pairingId
+    pairingId,
+    number
 ) {
+
     if (!sock) {
+
         throw new Error(
-            "WhatsApp socket unavailable"
+            "Socket unavailable"
         );
+
     }
+
 
     if (!sessionId) {
+
         throw new Error(
-            "SESSION_ID is missing"
+            "SESSION_ID unavailable"
         );
+
     }
+
 
     const targetJid =
-        normalizeJid(jid);
+        jid ||
+        sock.user?.id;
+
 
     if (!targetJid) {
+
         throw new Error(
-            "Invalid WhatsApp JID"
+            "Unable to determine WhatsApp JID"
         );
+
     }
 
+
+    const actualNumber =
+        normalizeJid(
+            number ||
+            sock.user?.id ||
+            targetJid
+        );
+
+
     /*
-     * Message 1
+     * Message 1:
+     * Connected notification.
      */
+
     await sendConnectedMessage(
         sock,
         targetJid,
         pairingId
     );
 
+
     /*
-     * Message 2
-     *
-     * Complete SESSION_ID.
+     * Small delay so WhatsApp receives the
+     * connected notification before the file.
      */
+
+    await new Promise(
+        resolve =>
+            setTimeout(
+                resolve,
+                800
+            )
+    );
+
+
+    /*
+     * Message 2:
+     * Complete SESSION_ID as creds.json.
+     */
+
     await sendSessionMessage(
         sock,
         sessionId,
         targetJid,
-        pairingId
+        pairingId,
+        actualNumber
     );
 
-    console.log(
-        "========================================"
+
+    log(
+        `MESSAGES SENT: 2`
     );
 
-    console.log(
-        "🎉 SESSION DELIVERY COMPLETE"
+
+    log(
+        `SESSION FORMAT: JSON DOCUMENT`
     );
 
-    console.log(
-        `JID: ${targetJid}`
+
+    log(
+        `SESSION LENGTH: ${sessionId.length}`
     );
 
-    console.log(
-        "MESSAGES SENT: 2"
-    );
-
-    console.log(
-        "SESSION PARTS: 1"
-    );
-
-    console.log(
-        "========================================"
-    );
 
     return true;
+
 }
 
+
+// ============================================================
+// GENERATE + SAVE + SEND
+//
+// Convenience function used by index.js.
+//
+// Flow:
+//
+// Baileys auth
+//     |
+//     v
+// createSessionBundle()
+//     |
+//     v
+// SESSION_ID
+//     |
+//     +----> create creds.json
+//     |
+//     +----> send creds.json to WhatsApp
+// ============================================================
+
+async function generateAndSendSession(
+    sock,
+    authFolder,
+    jid,
+    pairingId,
+    number
+) {
+
+    log(
+        "Generating SESSION_ID..."
+    );
+
+
+    const sessionId =
+        await createSessionBundle(
+            authFolder
+        );
+
+
+    /*
+     * Save permanent JSON session file.
+     */
+
+    const sessionFile =
+        await createSessionFile(
+            sessionId,
+            number ||
+                sock?.user?.id ||
+                jid,
+            pairingId
+        );
+
+
+    log(
+        `Session saved to ${sessionFile.filePath}`
+    );
+
+
+    /*
+     * Send file to WhatsApp.
+     */
+
+    await sendSessionToWhatsApp(
+        sock,
+        sessionId,
+        jid ||
+            sock?.user?.id,
+        pairingId,
+        number ||
+            sock?.user?.id ||
+            jid
+    );
+
+
+    return {
+
+        sessionId,
+
+        filePath:
+            sessionFile.filePath,
+
+        number:
+            normalizeJid(
+                number ||
+                sock?.user?.id ||
+                jid
+            )
+
+    };
+
+}
+
+
+// ============================================================
+// EXPORTS
+// ============================================================
+
 module.exports = {
-    SESSION_PREFIX,
+
+    PREFIX_SESSION,
+
     normalizeJid,
+
     createAuthSnapshot,
+
     createSessionBundle,
+
+    createSessionFile,
+
+    readSessionFile,
+
     sendConnectedMessage,
+
     sendSessionMessage,
-    sendSessionToWhatsApp
+
+    sendSessionToWhatsApp,
+
+    generateAndSendSession
+
 };

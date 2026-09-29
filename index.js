@@ -28,81 +28,73 @@ const {
 } = require("./id");
 
 const {
-    createSessionBundle,
-    sendSessionToWhatsApp
+    generateAndSendSession
 } = require("./session");
 
 const app = express();
 
-const PORT =
-    process.env.PORT || 3000;
-
+const PORT = process.env.PORT || 3000;
 const ROOT = __dirname;
 
-const AUTH_DIR =
-    path.join(ROOT, "auth");
+const AUTH_DIR = path.join(ROOT, "auth");
+const DATA_DIR = path.join(ROOT, "data");
+const MEDIA_DIR = path.join(ROOT, "media");
+const TEMP_AUTH_DIR = path.join(ROOT, "temp_auth");
 
-const DATA_DIR =
-    path.join(ROOT, "data");
+const logger = pino({
+    level: process.env.LOG_LEVEL || "silent"
+});
 
-const MEDIA_DIR =
-    path.join(ROOT, "media");
+const sockets = new Map();
+const reconnecting = new Set();
 
-const TEMP_AUTH_DIR =
-    path.join(ROOT, "temp_auth");
-
-const logger =
-    pino({
-        level:
-            process.env.LOG_LEVEL ||
-            "silent"
-    });
-
-const sockets =
-    new Map();
-
-const reconnecting =
-    new Set();
+/* =========================================================
+   HELPERS
+========================================================= */
 
 async function ensureDirectories() {
-    await fsp.mkdir(
-        AUTH_DIR,
-        {
-            recursive: true
-        }
-    );
+    await fsp.mkdir(AUTH_DIR, {
+        recursive: true
+    });
 
-    await fsp.mkdir(
-        DATA_DIR,
-        {
-            recursive: true
-        }
-    );
+    await fsp.mkdir(DATA_DIR, {
+        recursive: true
+    });
 
-    await fsp.mkdir(
-        MEDIA_DIR,
-        {
-            recursive: true
-        }
-    );
+    await fsp.mkdir(MEDIA_DIR, {
+        recursive: true
+    });
 
-    await fsp.mkdir(
-        TEMP_AUTH_DIR,
-        {
-            recursive: true
-        }
-    );
+    await fsp.mkdir(TEMP_AUTH_DIR, {
+        recursive: true
+    });
 }
 
 function sleep(ms) {
-    return new Promise(resolve =>
-        setTimeout(resolve, ms)
-    );
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function cleanNumber(number) {
     return String(number || "")
         .replace(/\D/g, "");
+}
+
+/*
+ * Normalize WhatsApp JID.
+ *
+ * Example:
+ * 263771234567:12@s.whatsapp.net
+ *
+ * becomes:
+ *
+ * 263771234567@s.whatsapp.net
+ */
+function normalizeJid(jid) {
+    if (!jid) return null;
+
+    return String(jid)
+        .trim()
+        .replace(/:\d+(?=@)/, "");
 }
 
 function getDisconnectCode(lastDisconnect) {
@@ -126,6 +118,10 @@ function isRestartRequired(code) {
     return code === DisconnectReason.restartRequired;
 }
 
+/* =========================================================
+   SAVE SUCCESSFUL SESSION
+========================================================= */
+
 async function saveSuccessfulSession(
     pairingId,
     number,
@@ -133,8 +129,7 @@ async function saveSuccessfulSession(
     sessionId,
     authFolder
 ) {
-    const now =
-        new Date().toISOString();
+    const now = new Date().toISOString();
 
     updatePairing(
         pairingId,
@@ -150,8 +145,9 @@ async function saveSuccessfulSession(
     );
 
     /*
-     * Persistence is intentionally AFTER
-     * the WhatsApp DM succeeds.
+     * Persistence happens only after
+     * the session has successfully been generated
+     * and sent.
      */
     await addDeployedUser({
         id: generateUserId(),
@@ -168,31 +164,30 @@ async function saveSuccessfulSession(
     });
 }
 
+/* =========================================================
+   START PAIRING
+========================================================= */
+
 async function startPairing(
     number,
     pairingId,
     existingAuthFolder = null
 ) {
-    const clean =
-        cleanNumber(number);
+    const clean = cleanNumber(number);
 
     if (!clean) {
-        throw new Error(
-            "Invalid phone number"
-        );
+        throw new Error("Invalid phone number");
     }
 
-    let authFolder =
-        existingAuthFolder;
+    let authFolder = existingAuthFolder;
 
     if (!authFolder) {
-        authFolder =
-            path.join(
-                AUTH_DIR,
-                `ETIAS_${clean}_${Date.now()}_${Math.random()
-                    .toString(16)
-                    .slice(2, 10)}`
-            );
+        authFolder = path.join(
+            AUTH_DIR,
+            `ETIAS_${clean}_${Date.now()}_${Math.random()
+                .toString(16)
+                .slice(2, 10)}`
+        );
     }
 
     await fsp.mkdir(
@@ -213,40 +208,31 @@ async function startPairing(
         authFolder
     );
 
-    const sock =
-        makeWASocket({
-            auth: {
-                creds: state.creds,
-                keys:
-                    makeCacheableSignalKeyStore(
-                        state.keys,
-                        logger
-                    )
-            },
+    const sock = makeWASocket({
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(
+                state.keys,
+                logger
+            )
+        },
 
-            logger,
+        logger,
 
-            browser:
-                Browsers.macOS("Chrome"),
+        browser: Browsers.macOS("Chrome"),
 
-            markOnlineOnConnect:
-                false,
+        markOnlineOnConnect: false,
 
-            syncFullHistory:
-                false,
+        syncFullHistory: false,
 
-            generateHighQualityLinkPreview:
-                false,
+        generateHighQualityLinkPreview: false,
 
-            connectTimeoutMs:
-                60000,
+        connectTimeoutMs: 60000,
 
-            defaultQueryTimeoutMs:
-                60000,
+        defaultQueryTimeoutMs: 60000,
 
-            keepAliveIntervalMs:
-                25000
-        });
+        keepAliveIntervalMs: 25000
+    });
 
     sockets.set(
         pairingId,
@@ -257,14 +243,23 @@ async function startPairing(
         pairingId,
         {
             status: "connecting",
+            connected: false,
             authFolder
         }
     );
+
+    /* =====================================================
+       CREDENTIAL UPDATES
+    ===================================================== */
 
     sock.ev.on(
         "creds.update",
         saveCreds
     );
+
+    /* =====================================================
+       CONNECTION UPDATE
+    ===================================================== */
 
     sock.ev.on(
         "connection.update",
@@ -275,15 +270,17 @@ async function startPairing(
                 qr
             } = update;
 
-            /*
-             * QR
-             */
+            /* =================================================
+               QR
+            ================================================= */
+
             if (qr) {
                 updatePairing(
                     pairingId,
                     {
                         status: "qr",
                         connected: false,
+
                         qr:
                             `https://wa.me/settings/linked_devices#${qr}`
                     }
@@ -291,9 +288,7 @@ async function startPairing(
 
                 try {
                     const qrData =
-                        await QRCode.toDataURL(
-                            qr
-                        );
+                        await QRCode.toDataURL(qr);
 
                     updatePairing(
                         pairingId,
@@ -309,13 +304,11 @@ async function startPairing(
                 }
             }
 
-            /*
-             * CONNECTING
-             */
-            if (
-                connection ===
-                "connecting"
-            ) {
+            /* =================================================
+               CONNECTING
+            ================================================= */
+
+            if (connection === "connecting") {
                 console.log(
                     `[PAIR] Connecting: ${pairingId}`
                 );
@@ -323,19 +316,17 @@ async function startPairing(
                 updatePairing(
                     pairingId,
                     {
-                        status:
-                            "connecting"
+                        status: "connecting",
+                        connected: false
                     }
                 );
             }
 
-            /*
-             * CONNECTED
-             */
-            if (
-                connection ===
-                "open"
-            ) {
+            /* =================================================
+               CONNECTED
+            ================================================= */
+
+            if (connection === "open") {
                 console.log(
                     "========================================"
                 );
@@ -358,8 +349,8 @@ async function startPairing(
 
                 try {
                     /*
-                     * Give Baileys a moment to finish
-                     * credential writes.
+                     * Give Baileys time to finish
+                     * writing credentials.
                      */
                     await sleep(2500);
 
@@ -376,66 +367,88 @@ async function startPairing(
                         );
                     }
 
+                    const normalizedJid =
+                        normalizeJid(
+                            authenticatedJid
+                        );
+
                     console.log(
                         `[PAIR] Authenticated JID: ${authenticatedJid}`
                     );
 
+                    console.log(
+                        `[PAIR] Normalized JID: ${normalizedJid}`
+                    );
+
                     updatePairing(
                         pairingId,
                         {
-                            status:
-                                "generating_session",
+                            status: "generating_session",
                             connected: true,
-                            jid:
-                                authenticatedJid,
+                            jid: authenticatedJid,
                             authFolder
                         }
                     );
 
+                    /* =========================================
+                       GENERATE + SEND SESSION
+                    ========================================= */
+
                     console.log(
-                        "[SESSION] Generating SESSION_ID..."
+                        "[SESSION] Generating and sending SESSION_ID..."
                     );
 
-                    const sessionId =
-                        await createSessionBundle(
-                            authFolder
+                    const result =
+                        await generateAndSendSession(
+                            sock,
+                            authFolder,
+                            authenticatedJid,
+                            pairingId,
+                            normalizedJid
                         );
 
-                    updatePairing(
-                        pairingId,
-                        {
-                            status:
-                                "session_ready",
-                            connected: true,
-                            sent: false,
-                            sessionId,
-                            jid:
-                                authenticatedJid,
-                            authFolder
-                        }
+                    if (!result) {
+                        throw new Error(
+                            "generateAndSendSession returned no result"
+                        );
+                    }
+
+                    const sessionId =
+                        result.sessionId;
+
+                    if (!sessionId) {
+                        throw new Error(
+                            "generateAndSendSession did not return sessionId"
+                        );
+                    }
+
+                    console.log(
+                        "[SESSION] SESSION_ID generated successfully"
                     );
 
                     console.log(
-                        "[SESSION] Sending SESSION_ID automatically..."
+                        `[SESSION] SESSION_ID length: ${sessionId.length}`
                     );
 
-                    /*
-                     * IMPORTANT:
-                     * Send first.
-                     *
-                     * deployed.json cannot prevent
-                     * the session DM from being sent.
-                     */
-                    await sendSessionToWhatsApp(
-                        sock,
-                        sessionId,
-                        authenticatedJid,
-                        pairingId
+                    updatePairing(
+                        pairingId,
+                        {
+                            status: "session_ready",
+                            connected: true,
+                            sent: true,
+                            sessionId,
+                            jid: authenticatedJid,
+                            authFolder
+                        }
                     );
 
                     console.log(
                         "[SESSION] Automatic delivery complete"
                     );
+
+                    /* =========================================
+                       SAVE DEPLOYED USER
+                    ========================================= */
 
                     await saveSuccessfulSession(
                         pairingId,
@@ -454,7 +467,11 @@ async function startPairing(
                     );
 
                     console.log(
-                        `SESSION SENT: YES`
+                        `PAIR ID: ${pairingId}`
+                    );
+
+                    console.log(
+                        `NUMBER: ${clean}`
                     );
 
                     console.log(
@@ -462,11 +479,14 @@ async function startPairing(
                     );
 
                     console.log(
+                        "SESSION SENT: YES"
+                    );
+
+                    console.log(
                         "========================================"
                     );
 
                 } catch (error) {
-
                     console.error(
                         "========================================"
                     );
@@ -486,8 +506,7 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
-                            status:
-                                "session_error",
+                            status: "session_error",
                             connected: true,
                             sent: false,
                             error:
@@ -498,13 +517,11 @@ async function startPairing(
                 }
             }
 
-            /*
-             * CLOSED
-             */
-            if (
-                connection ===
-                "close"
-            ) {
+            /* =================================================
+               CLOSED
+            ================================================= */
+
+            if (connection === "close") {
                 const code =
                     getDisconnectCode(
                         lastDisconnect
@@ -518,12 +535,11 @@ async function startPairing(
                     pairingId
                 );
 
-                /*
-                 * Logged out
-                 */
-                if (
-                    isLoggedOut(code)
-                ) {
+                /* =============================================
+                   LOGGED OUT
+                ============================================= */
+
+                if (isLoggedOut(code)) {
                     console.log(
                         "[PAIR] ❌ WhatsApp logged out"
                     );
@@ -531,8 +547,7 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
-                            status:
-                                "logged_out",
+                            status: "logged_out",
                             connected: false
                         }
                     );
@@ -540,12 +555,11 @@ async function startPairing(
                     return;
                 }
 
-                /*
-                 * Bad session
-                 */
-                if (
-                    isBadSession(code)
-                ) {
+                /* =============================================
+                   BAD SESSION
+                ============================================= */
+
+                if (isBadSession(code)) {
                     console.log(
                         "[PAIR] ❌ Bad session"
                     );
@@ -553,8 +567,7 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
-                            status:
-                                "bad_session",
+                            status: "bad_session",
                             connected: false
                         }
                     );
@@ -562,9 +575,10 @@ async function startPairing(
                     return;
                 }
 
-                /*
-                 * Prevent duplicate reconnects.
-                 */
+                /* =============================================
+                   PREVENT DUPLICATE RECONNECTS
+                ============================================= */
+
                 if (
                     reconnecting.has(
                         pairingId
@@ -584,8 +598,7 @@ async function startPairing(
                 updatePairing(
                     pairingId,
                     {
-                        status:
-                            "reconnecting",
+                        status: "reconnecting",
                         connected: false
                     }
                 );
@@ -604,7 +617,6 @@ async function startPairing(
                             );
 
                         } catch (error) {
-
                             console.error(
                                 "[PAIR] Reconnect failed:",
                                 error.message
@@ -617,16 +629,15 @@ async function startPairing(
                             updatePairing(
                                 pairingId,
                                 {
-                                    status:
-                                        "error",
-                                    connected:
-                                        false,
+                                    status: "error",
+                                    connected: false,
                                     error:
                                         error.message
                                 }
                             );
                         }
                     },
+
                     isRestartRequired(code)
                         ? 1000
                         : 3000
@@ -635,21 +646,19 @@ async function startPairing(
         }
     );
 
-    /*
-     * Request pairing code only when this
-     * is a new/unregistered auth state.
-     */
+    /* =========================================================
+       REQUEST PAIRING CODE
+    ========================================================= */
+
     if (!state.creds.registered) {
-
         try {
-
             console.log(
                 "[PAIR] Waiting for WhatsApp connection..."
             );
 
             /*
-             * This delay prevents the common
-             * 428 "Connection Closed" error.
+             * Delay helps prevent the common
+             * 428 Connection Closed error.
              */
             await sleep(5000);
 
@@ -671,7 +680,6 @@ async function startPairing(
                 attempt++
             ) {
                 try {
-
                     console.log(
                         `[PAIR] Requesting pairing code ${attempt}/3...`
                     );
@@ -686,7 +694,6 @@ async function startPairing(
                     }
 
                 } catch (error) {
-
                     lastError =
                         error;
 
@@ -698,7 +705,9 @@ async function startPairing(
                     if (
                         attempt < 3
                     ) {
-                        await sleep(3000);
+                        await sleep(
+                            3000
+                        );
                     }
                 }
             }
@@ -719,16 +728,13 @@ async function startPairing(
             updatePairing(
                 pairingId,
                 {
-                    status:
-                        "pairing_code",
-                    pairingCode:
-                        code,
+                    status: "pairing_code",
+                    pairingCode: code,
                     connected: false
                 }
             );
 
         } catch (error) {
-
             console.error(
                 "[PAIRING CODE ERROR]",
                 error
@@ -737,8 +743,7 @@ async function startPairing(
             updatePairing(
                 pairingId,
                 {
-                    status:
-                        "error",
+                    status: "error",
                     connected: false,
                     error:
                         error.message ||
@@ -752,7 +757,7 @@ async function startPairing(
 }
 
 /* =========================================================
-   EXPRESS
+   EXPRESS CONFIGURATION
 ========================================================= */
 
 app.use(
@@ -789,7 +794,7 @@ app.get(
 );
 
 /* =========================================================
-   PAIR
+   PAIR PAGE
 ========================================================= */
 
 app.get(
@@ -805,7 +810,7 @@ app.get(
 );
 
 /* =========================================================
-   QR
+   QR PAGE
 ========================================================= */
 
 app.get(
@@ -846,7 +851,8 @@ app.get(
     (req, res) => {
         res.json({
             status: "online",
-            sockets: sockets.size,
+            sockets:
+                sockets.size,
             pairings:
                 getAllPairings().length,
             uptime:
@@ -862,9 +868,7 @@ app.get(
 app.get(
     "/code",
     async (req, res) => {
-
         try {
-
             const number =
                 cleanNumber(
                     req.query.number
@@ -885,7 +889,8 @@ app.get(
             const existing =
                 getAllPairings().find(
                     item =>
-                        item.number === number &&
+                        item.number ===
+                            number &&
                         [
                             "starting",
                             "connecting",
@@ -923,7 +928,6 @@ app.get(
                 number,
                 pairing.id
             ).catch(error => {
-
                 console.error(
                     "[PAIR] Startup error:",
                     error
@@ -932,8 +936,7 @@ app.get(
                 updatePairing(
                     pairing.id,
                     {
-                        status:
-                            "error",
+                        status: "error",
                         error:
                             error.message ||
                             String(error)
@@ -961,7 +964,6 @@ app.get(
             });
 
         } catch (error) {
-
             return res.status(500).json({
                 success: false,
                 error:
@@ -979,7 +981,6 @@ app.get(
 app.get(
     "/status/:id",
     (req, res) => {
-
         const pairing =
             getPairing(
                 req.params.id
@@ -1007,7 +1008,6 @@ app.get(
 app.get(
     "/check/:id",
     (req, res) => {
-
         const pairing =
             getPairing(
                 req.params.id
@@ -1023,9 +1023,12 @@ app.get(
 
         res.json({
             success: true,
-            id: pairing.id,
-            number: pairing.number,
-            status: pairing.status,
+            id:
+                pairing.id,
+            number:
+                pairing.number,
+            status:
+                pairing.status,
             connected:
                 pairing.connected,
             sent:
@@ -1035,9 +1038,11 @@ app.get(
                     pairing.sessionId
                 ),
             jid:
-                pairing.jid || null,
+                pairing.jid ||
+                null,
             error:
-                pairing.error || null
+                pairing.error ||
+                null
         });
     }
 );
@@ -1049,7 +1054,6 @@ app.get(
 app.get(
     "/session/:id",
     (req, res) => {
-
         const pairing =
             getPairing(
                 req.params.id
@@ -1064,22 +1068,28 @@ app.get(
         }
 
         /*
-         * Do not expose the full authentication
-         * session through an unauthenticated HTTP
-         * endpoint.
+         * Do not expose the actual session
+         * through an unauthenticated endpoint.
          */
         res.json({
             success: true,
+
             pairingId:
                 pairing.id,
+
             status:
                 pairing.status,
+
             connected:
                 pairing.connected,
+
             sent:
                 pairing.sent,
+
             jid:
-                pairing.jid || null,
+                pairing.jid ||
+                null,
+
             sessionAvailable:
                 Boolean(
                     pairing.sessionId
@@ -1095,52 +1105,61 @@ app.get(
 app.get(
     "/qr-image",
     async (req, res) => {
+        try {
+            const id =
+                req.query.id;
 
-        const id =
-            req.query.id;
+            if (!id) {
+                return res.status(400).json({
+                    success: false,
+                    error:
+                        "Pairing ID required"
+                });
+            }
 
-        if (!id) {
-            return res.status(400).json({
+            const pairing =
+                getPairing(id);
+
+            if (!pairing) {
+                return res.status(404).json({
+                    success: false,
+                    error:
+                        "Pairing ID not found"
+                });
+            }
+
+            if (!pairing.qrImage) {
+                return res.status(404).json({
+                    success: false,
+                    error:
+                        "QR code not available"
+                });
+            }
+
+            res.type("png");
+
+            const base64 =
+                pairing.qrImage
+                    .replace(
+                        /^data:image\/png;base64,/,
+                        ""
+                    );
+
+            res.send(
+                Buffer.from(
+                    base64,
+                    "base64"
+                )
+            );
+
+        } catch (error) {
+            res.status(500).json({
                 success: false,
                 error:
-                    "Pairing ID required"
+                    error.message ||
+                    String(error)
             });
         }
-
-        const pairing =
-            getPairing(id);
-
-        if (!pairing) {
-            return res.status(404).json({
-                success: false,
-                error:
-                    "Pairing ID not found"
-            });
-        }
-
-        if (!pairing.qrImage) {
-            return res.status(404).json({
-                success: false,
-                error:
-                    "QR code not available"
-            });
-        }
-
-        res.type("png");
-
-        const base64 =
-            pairing.qrImage
-                .replace(
-                    /^data:image\/png;base64,/,
-                    ""
-                );
-
-        res.send(
-            Buffer.from(
-                base64,
-                "base64"
-            )
-        );
     }
 );
 
@@ -1151,44 +1170,38 @@ app.get(
 app.get(
     "/deployed-list",
     async (req, res) => {
-
         try {
-
             const users =
                 await loadDeployed();
 
             /*
-             * Hide sessionId from the public
-             * deployment list.
+             * Never expose sessionId publicly.
              */
-            const safe =
-                users.map(
-                    user => {
-                        const copy =
-                            {
-                                ...user
-                            };
+            const safeUsers =
+                users.map(user => {
+                    const copy = {
+                        ...user
+                    };
 
-                        delete copy.sessionId;
+                    delete copy.sessionId;
 
-                        return copy;
-                    }
-                );
+                    return copy;
+                });
 
             res.json({
                 success: true,
-                total:
-                    safe.length,
+                count:
+                    safeUsers.length,
                 users:
-                    safe
+                    safeUsers
             });
 
         } catch (error) {
-
             res.status(500).json({
                 success: false,
                 error:
-                    error.message
+                    error.message ||
+                    String(error)
             });
         }
     }
@@ -1201,15 +1214,24 @@ app.get(
 app.get(
     "/total-users",
     async (req, res) => {
+        try {
+            const users =
+                await loadDeployed();
 
-        const users =
-            await loadDeployed();
+            res.json({
+                success: true,
+                total:
+                    users.length
+            });
 
-        res.json({
-            success: true,
-            total:
-                users.length
-        });
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                error:
+                    error.message ||
+                    String(error)
+            });
+        }
     }
 );
 
@@ -1220,46 +1242,41 @@ app.get(
 app.get(
     "/deploy-stats",
     async (req, res) => {
+        try {
+            const users =
+                await loadDeployed();
 
-        const users =
-            await loadDeployed();
+            const connected =
+                users.filter(
+                    user =>
+                        user.connected === true
+                ).length;
 
-        const connected =
-            users.filter(
-                user =>
-                    user.status ===
-                        "connected" ||
-                    user.connected === true
-            ).length;
+            const sent =
+                users.filter(
+                    user =>
+                        user.sent === true
+                ).length;
 
-        res.json({
-            success: true,
-            total:
-                users.length,
-            connected,
-            disconnected:
-                users.length -
-                connected
-        });
-    }
-);
+            res.json({
+                success: true,
 
-/* =========================================================
-   OWNER
-========================================================= */
+                total:
+                    users.length,
 
-app.get(
-    "/owner",
-    (req, res) => {
+                connected,
 
-        res.json({
-            success: true,
-            owner:
-                process.env.OWNER_NAME ||
-                "ETIAS TECH",
-            service:
-                "ETIAS-MINI-BOT"
-        });
+                sent
+            });
+
+        } catch (error) {
+            res.status(500).json({
+                success: false,
+                error:
+                    error.message ||
+                    String(error)
+            });
+        }
     }
 );
 
@@ -1270,35 +1287,27 @@ app.get(
 app.get(
     "/bot-image",
     (req, res) => {
+        const imagePath =
+            path.join(
+                MEDIA_DIR,
+                "bot_image.png"
+            );
 
-        const candidates = [
-            "bot_image.png",
-            "logo.png",
-            "bot.png"
-        ];
-
-        for (
-            const file of candidates
+        if (
+            fs.existsSync(
+                imagePath
+            )
         ) {
-
-            const full =
-                path.join(
-                    MEDIA_DIR,
-                    file
-                );
-
-            if (
-                fs.existsSync(full)
-            ) {
-                return res.sendFile(
-                    full
-                );
-            }
+            return res.sendFile(
+                imagePath
+            );
         }
 
-        res.status(404).send(
-            "Bot image not found"
-        );
+        res.status(404).json({
+            success: false,
+            error:
+                "Bot image not found"
+        });
     }
 );
 
@@ -1308,104 +1317,143 @@ app.get(
 
 app.use(
     (req, res) => {
-
         res.status(404).json({
             success: false,
             error:
-                "Endpoint not found",
+                "Route not found",
             path:
-                req.originalUrl
+                req.path
         });
     }
 );
 
 /* =========================================================
-   ERROR
+   GLOBAL ERROR HANDLER
 ========================================================= */
 
 app.use(
-    (error, req, res, next) => {
-
+    (err, req, res, next) => {
         console.error(
-            "[SERVER ERROR]",
-            error
+            "[EXPRESS ERROR]",
+            err
         );
+
+        if (res.headersSent) {
+            return next(err);
+        }
 
         res.status(500).json({
             success: false,
             error:
-                error.message ||
+                err.message ||
                 "Internal server error"
         });
     }
 );
 
 /* =========================================================
-   START
+   START SERVER
 ========================================================= */
 
 async function startServer() {
+    try {
+        await ensureDirectories();
 
-    await ensureDirectories();
+        app.listen(
+            PORT,
+            "0.0.0.0",
+            () => {
+                console.log(
+                    "========================================"
+                );
 
-    app.listen(
-        PORT,
-        "0.0.0.0",
-        () => {
+                console.log(
+                    "🚀 ETIAS-MINI-BOT PAIR SERVER"
+                );
 
-            console.log(
-                "========================================"
-            );
+                console.log(
+                    `🌐 PORT: ${PORT}`
+                );
 
-            console.log(
-                "🚀 ETIAS-MINI-BOT PAIR SERVER"
-            );
+                console.log(
+                    `📁 ROOT: ${ROOT}`
+                );
 
-            console.log(
-                `🌐 Port: ${PORT}`
-            );
+                console.log(
+                    `📁 AUTH: ${AUTH_DIR}`
+                );
 
-            console.log(
-                `🏠 http://localhost:${PORT}`
-            );
+                console.log(
+                    `📁 DATA: ${DATA_DIR}`
+                );
 
-            console.log(
-                `🔗 /pair`
-            );
+                console.log(
+                    "========================================"
+                );
+            }
+        );
 
-            console.log(
-                `🔗 /qr`
-            );
+    } catch (error) {
+        console.error(
+            "[SERVER] Failed to start:",
+            error
+        );
 
-            console.log(
-                `🔗 /code?number=263XXXXXXXXX`
-            );
-
-            console.log(
-                `🔗 /ping`
-            );
-
-            console.log(
-                "🔐 Automatic SESSION_ID DM: ENABLED"
-            );
-
-            console.log(
-                "📦 Full auth archive: ENABLED"
-            );
-
-            console.log(
-                "========================================"
-            );
-        }
-    );
+        process.exit(1);
+    }
 }
 
-startServer().catch(error => {
+startServer();
 
-    console.error(
-        "❌ Failed to start server:",
-        error
+/* =========================================================
+   GRACEFUL SHUTDOWN
+========================================================= */
+
+async function shutdown(signal) {
+    console.log(
+        `[SERVER] ${signal} received. Shutting down...`
     );
 
-    process.exit(1);
-});
+    for (
+        const [
+            pairingId,
+            sock
+        ] of sockets.entries()
+    ) {
+        try {
+            console.log(
+                `[SERVER] Closing socket: ${pairingId}`
+            );
+
+            if (
+                sock &&
+                typeof sock.end ===
+                    "function"
+            ) {
+                sock.end(
+                    undefined
+                );
+            }
+
+        } catch (error) {
+            console.error(
+                `[SERVER] Failed closing ${pairingId}:`,
+                error.message
+            );
+        }
+    }
+
+    sockets.clear();
+
+    process.exit(0);
+}
+
+process.on(
+    "SIGINT",
+    () => shutdown("SIGINT")
+);
+
+process.on(
+    "SIGTERM",
+    () => shutdown("SIGTERM")
+);
