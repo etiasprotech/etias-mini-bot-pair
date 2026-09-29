@@ -1,234 +1,1271 @@
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const pino = require('pino');
-const { default: makeWASocket, useMultiFileAuthState, delay, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode');
+// ============================================================
+// ETIAS-MINI-BOT PAIRING SERVER
+// MULTI-FILE SESSION SYSTEM - TAR.GZ + BASE64
+// ============================================================
+
+require("dotenv").config();
+
+const express = require("express");
+const fs = require("fs");
+const path = require("path");
+const crypto = require("crypto");
+const zlib = require("zlib");
+const { execFileSync } = require("child_process");
+const P = require("pino");
+
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason
+} = require("@whiskeysockets/baileys");
+
+// ============================================================
+// CONFIG
+// ============================================================
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const OWNER_NUMBER = '263778810589';
 
-// Ensure folders
-['./auth','./data','./media'].forEach(d=>{
-  if(!fs.existsSync(d)) fs.mkdirSync(d,{recursive:true});
-});
-if(!fs.existsSync('./data/deployed.json')) fs.writeFileSync('./data/deployed.json', '[]');
+const PORT = Number(process.env.PORT || 3000);
 
-app.use(express.json({limit:'10mb'}));
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname));
-app.use('/media', express.static(path.join(__dirname, 'media')));
+const ROOT = __dirname;
 
-// Helper - REAL DB
-function getDB(){
-  try{ return JSON.parse(fs.readFileSync('./data/deployed.json','utf8')); }catch{ return []; }
-}
-function saveDB(db){ fs.writeFileSync('./data/deployed.json', JSON.stringify(db, null, 2)); }
+const AUTH_DIR = path.join(ROOT, "auth");
+const DATA_DIR = path.join(ROOT, "data");
+const TEMP_DIR = path.join(ROOT, "temp_auth");
 
-// Pages - SAFE
-function sendSafe(res, file){
-  const files = [file, `public/${file}`, 'main.html', 'index.html'];
-  for(let f of files){
-    let p = path.join(__dirname, f);
-    if(fs.existsSync(p)) return res.sendFile(p);
-  }
-  return res.status(404).send(`Missing ${file} - put it in ~/etias-pair/`);
-}
-app.get('/', (req,res)=> sendSafe(res, 'index.html'));
-app.get('/pair', (req,res)=> sendSafe(res, 'pair.html'));
-app.get('/qr', (req,res)=> sendSafe(res, 'qr.html'));
-app.get('/deploy', (req,res)=> sendSafe(res, 'deploy.html'));
-app.get('/owner', (req,res)=> sendSafe(res, 'deploy.html'));
+const DEPLOYED_FILE = path.join(DATA_DIR, "deployed.json");
 
-// Bot image
-app.get('/bot-image', (req, res) => {
-  const tryFiles = ['bot.jpg','bot.jpeg','bot.png','logo.jpg','bot_image.jpg','bot_image.png'];
-  for(let n of tryFiles){
-    let p = path.join(__dirname, 'media', n);
-    if(fs.existsSync(p)) return res.sendFile(p);
-  }
-  const buf = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
-  res.set('Content-Type','image/png'); res.send(buf);
-});
+const PREFIX = "ETIAS-MINI-BOT~";
 
-// === REAL TOTAL USERS & REAL ONLINE ===
-app.get('/total-users', (req,res)=>{
-  const db = getDB();
-  const now = new Date();
-  const active = db.filter(s=> new Date(s.expiry) > now && s.active!==false).length;
-  const expired = db.filter(s=> new Date(s.expiry) <= now).length;
-  
-  // REAL - no fake +1523
-  const total = db.length;
-  const online = active; // real online = active non-expired
-  
-  res.json({ 
-    total, 
-    realTotal: total,
-    online, 
-    count: total, 
-    real: total,
-    active, 
-    expired,
-    updatedAt: new Date().toISOString()
-  });
-});
+const OWNER_NUMBER = (
+    process.env.OWNER_NUMBER || "263778810589"
+).replace(/[^0-9]/g, "");
 
-app.get('/deploy-stats', (req,res)=>{
-  const db = getDB();
-  const now = new Date();
-  const active = db.filter(s=> new Date(s.expiry) > now && s.active!==false).length;
-  const expired = db.filter(s=> new Date(s.expiry) <= now).length;
-  const recent = db.filter(s=> Date.now() - new Date(s.deployedAt).getTime() < 24*60*60*1000).length;
-  res.json({ total: db.length, active, expired, recent, online: active });
-});
+const DEFAULT_DAYS = 30;
 
-// Real deployed list for deploy.html
-app.get('/deployed-list', (req,res)=>{
-  const db = getDB();
-  const now = Date.now();
-  const list = db.map(u=>{
-    const expiryMs = new Date(u.expiry).getTime();
-    const daysLeft = Math.max(0, Math.ceil((expiryMs - now)/(24*60*60*1000)));
-    const isExpired = expiryMs <= now;
-    return {
-      number: u.number,
-      duration: u.duration,
-      expiry: u.expiry,
-      deployedAt: u.deployedAt,
-      daysLeft,
-      isExpired,
-      active: !isExpired && u.active!==false
-    };
-  }).sort((a,b)=> new Date(b.deployedAt) - new Date(a.deployedAt));
-  res.json(list);
-});
+const ALLOWED_DAYS = [
+    7,
+    15,
+    30,
+    60,
+    90,
+    365
+];
 
-// Deploy API
-app.post('/deploy', (req,res)=>{
-  const { session, userNumber, duration } = req.body;
-  if(!session || !session.startsWith('ETIAS-MINI-BOT')) return res.json({ success:false, message:'Invalid SESSION_ID - must start with ETIAS-MINI-BOT~' });
-  if(!userNumber) return res.json({ success:false, message:'User number required' });
+// ============================================================
+// DIRECTORIES
+// ============================================================
 
-  const days = parseInt(duration) || 30;
-  const expiry = new Date(Date.now()+days*24*60*60*1000);
-  const db = getDB();
-
-  const filtered = db.filter(u=> u.number !== userNumber);
-  filtered.push({
-    number: userNumber,
-    session: session.substring(0,60)+'...',
-    fullSession: session,
-    duration: days,
-    expiry: expiry.toISOString(),
-    deployedAt: new Date().toISOString(),
-    active: true
-  });
-  saveDB(filtered);
-
-  console.log(`[DEPLOY] ${userNumber} for ${days} days`);
-  return res.json({ status:true, success:true, expiry: expiry.toISOString(), message:`Deployed ${userNumber} for ${days} days` });
-});
-
-// Store active pairing
-const activeSockets = new Map();
-
-// FIXED PAIR - Prevents "Couldn't link device"
-app.get('/code', async (req,res)=>{
-  const num = req.query.number?.replace(/[^0-9]/g,'');
-  if(!num || num.length<10) return res.status(400).json({error:'Enter valid number ex: 2637XXXXXX'});
-  const id = 'ETIAS_'+num+'_'+Date.now();
-  const authFolder = `./auth/${id}`;
-  try{
-    const {state, saveCreds} = await useMultiFileAuthState(authFolder);
-    const sock = makeWASocket({ 
-      auth: state, 
-      logger: pino({level:'silent'}), 
-      browser: Browsers.macOS('Chrome'),
-      printQRInTerminal: false,
-      markOnlineOnConnect: false,
-      syncFullHistory: false
-    });
-    sock.ev.on('creds.update', saveCreds);
-    activeSockets.set(id, sock);
-
-    await delay(3500); // CRITICAL FIX
-    
-    if(!sock.authState.creds.registered){
-      let code = await sock.requestPairingCode(num);
-      code = code?.match(/.{1,4}/g)?.join('-') || code;
-      console.log(`[PAIR] ${num} => ${code}`);
-
-      sock.ev.on('connection.update', async (u)=>{
-        if(u.connection === 'open'){
-          try{
-            const credsPath = path.join(authFolder, 'creds.json');
-            if(fs.existsSync(credsPath)){
-              const raw = fs.readFileSync(credsPath,'utf8');
-              const session = `ETIAS-MINI-BOT~${Buffer.from(raw).toString('base64')}`;
-              console.log(`[SESSION] Generated for ${num}`);
-              const db = getDB();
-              const expiry = new Date(Date.now()+30*24*60*60*1000);
-              const filtered = db.filter(x=>x.number!==num);
-              filtered.push({ number:num, session:session.substring(0,60)+'...', fullSession:session, duration:30, expiry:expiry.toISOString(), deployedAt:new Date().toISOString(), active:true });
-              saveDB(filtered);
-            }
-          }catch(e){ console.log(e.message); }
-        }
-      });
-
-      res.json({code, sessionId: id, id});
-      setTimeout(()=>{ try{fs.rmSync(authFolder,{recursive:true,force:true})}catch{} try{activeSockets.get(id)?.ws?.close()}catch{} activeSockets.delete(id); }, 240000);
-    } else {
-      res.status(400).json({error:'Already registered'});
+for (const dir of [
+    AUTH_DIR,
+    DATA_DIR,
+    TEMP_DIR
+]) {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, {
+            recursive: true
+        });
     }
-  }catch(e){
-    console.error(`[PAIR ERROR] ${num}`, e.message); 
-    res.status(500).json({error:'Failed - try QR or check number 263...'});
-    try{fs.rmSync(authFolder,{recursive:true,force:true})}catch{}
-  }
-});
+}
 
-app.get('/check/:id', (req,res)=>{
-  const id = req.params.id;
-  const authFolder = `./auth/${id}`;
-  const credsPath = path.join(authFolder, 'creds.json');
-  if(fs.existsSync(credsPath)){
+// ============================================================
+// EXPRESS
+// ============================================================
+
+app.use(express.json({
+    limit: "25mb"
+}));
+
+app.use(express.urlencoded({
+    extended: true,
+    limit: "25mb"
+}));
+
+// ============================================================
+// DATABASE FILE
+// ============================================================
+
+function readJSON(file, fallback) {
+    try {
+        if (!fs.existsSync(file)) {
+            return fallback;
+        }
+
+        return JSON.parse(
+            fs.readFileSync(file, "utf8")
+        );
+    } catch (e) {
+        console.log(
+            "[JSON READ ERROR]",
+            file,
+            e.message
+        );
+
+        return fallback;
+    }
+}
+
+function writeJSON(file, data) {
+    const temp = `${file}.tmp`;
+
+    fs.writeFileSync(
+        temp,
+        JSON.stringify(data, null, 2),
+        "utf8"
+    );
+
+    fs.renameSync(temp, file);
+}
+
+function getDeployed() {
+    return readJSON(
+        DEPLOYED_FILE,
+        {}
+    );
+}
+
+function saveDeployed(data) {
+    writeJSON(
+        DEPLOYED_FILE,
+        data
+    );
+}
+
+// ============================================================
+// NUMBER HELPERS
+// ============================================================
+
+function normalizeNumber(value) {
+    if (!value) return "";
+
+    return String(value)
+        .split(":")[0]
+        .split("@")[0]
+        .replace(/[^0-9]/g, "");
+}
+
+// ============================================================
+// SAFE PATH
+// ============================================================
+
+function safeRelativePath(file) {
+    const normalized = path.posix.normalize(
+        String(file)
+            .replace(/\\/g, "/")
+    );
+
+    if (
+        normalized === ".." ||
+        normalized.startsWith("../") ||
+        normalized.startsWith("/") ||
+        normalized.includes("\0")
+    ) {
+        throw new Error(
+            "Unsafe archive path"
+        );
+    }
+
+    return normalized;
+}
+
+// ============================================================
+// CREATE TAR.GZ SESSION
+// ============================================================
+
+function createSessionArchive(authPath) {
+
+    if (!fs.existsSync(authPath)) {
+        throw new Error(
+            "Auth directory does not exist"
+        );
+    }
+
+    const files = [];
+
+    function walk(directory) {
+
+        const entries = fs.readdirSync(
+            directory,
+            {
+                withFileTypes: true
+            }
+        );
+
+        for (const entry of entries) {
+
+            const fullPath = path.join(
+                directory,
+                entry.name
+            );
+
+            if (entry.isDirectory()) {
+
+                walk(fullPath);
+
+            } else if (entry.isFile()) {
+
+                files.push(
+                    path.relative(
+                        authPath,
+                        fullPath
+                    )
+                );
+            }
+        }
+    }
+
+    walk(authPath);
+
+    if (!files.includes("creds.json")) {
+        throw new Error(
+            "creds.json not found"
+        );
+    }
+
+    /*
+     * We create a temporary tar archive and then gzip it.
+     *
+     * tar is available on Termux/Linux/Render.
+     */
+
+    const tempName =
+        `session-${crypto.randomBytes(8).toString("hex")}`;
+
+    const tempTar = path.join(
+        TEMP_DIR,
+        `${tempName}.tar`
+    );
+
+    const tempGz = path.join(
+        TEMP_DIR,
+        `${tempName}.tar.gz`
+    );
+
+    try {
+
+        execFileSync(
+            "tar",
+            [
+                "-cf",
+                tempTar,
+                "-C",
+                authPath,
+                "."
+            ],
+            {
+                stdio: "ignore"
+            }
+        );
+
+        execFileSync(
+            "gzip",
+            [
+                "-f",
+                tempTar
+            ],
+            {
+                stdio: "ignore"
+            }
+        );
+
+        /*
+         * gzip -f changes:
+         *
+         * file.tar
+         *
+         * into:
+         *
+         * file.tar.gz
+         */
+
+        const archive = fs.readFileSync(
+            tempGz
+        );
+
+        return PREFIX + archive.toString(
+            "base64"
+        );
+
+    } finally {
+
+        try {
+            fs.rmSync(
+                tempTar,
+                {
+                    force: true
+                }
+            );
+        } catch {}
+
+        try {
+            fs.rmSync(
+                tempGz,
+                {
+                    force: true
+                }
+            );
+        } catch {}
+    }
+}
+
+// ============================================================
+// VALIDATE SESSION ARCHIVE
+// ============================================================
+
+function decodeSessionArchive(session) {
+
+    if (!session) {
+        throw new Error(
+            "Session is required"
+        );
+    }
+
+    let clean = String(session)
+        .trim()
+        .replace(/\s/g, "");
+
+    if (
+        clean.startsWith(PREFIX)
+    ) {
+        clean = clean.slice(
+            PREFIX.length
+        );
+    }
+
+    if (!clean) {
+        throw new Error(
+            "Empty session"
+        );
+    }
+
+    let compressed;
+
+    try {
+
+        compressed = Buffer.from(
+            clean,
+            "base64"
+        );
+
+    } catch {
+        throw new Error(
+            "Invalid base64 session"
+        );
+    }
+
+    if (!compressed.length) {
+        throw new Error(
+            "Empty archive"
+        );
+    }
+
+    let tarBuffer;
+
+    try {
+
+        tarBuffer = zlib.gunzipSync(
+            compressed
+        );
+
+    } catch (e) {
+
+        throw new Error(
+            `Invalid GZIP archive: ${e.message}`
+        );
+    }
+
+    if (!tarBuffer.length) {
+        throw new Error(
+            "Empty TAR archive"
+        );
+    }
+
+    const tempTar = path.join(
+        TEMP_DIR,
+        `verify-${crypto.randomBytes(8).toString("hex")}.tar`
+    );
+
+    try {
+
+        fs.writeFileSync(
+            tempTar,
+            tarBuffer
+        );
+
+        /*
+         * List archive contents first.
+         */
+
+        const listing = execFileSync(
+            "tar",
+            [
+                "-tf",
+                tempTar
+            ],
+            {
+                encoding: "utf8"
+            }
+        );
+
+        const entries = listing
+            .split("\n")
+            .map(x => x.trim())
+            .filter(Boolean);
+
+        let hasCreds = false;
+
+        for (const entry of entries) {
+
+            const normalized =
+                safeRelativePath(entry);
+
+            if (
+                normalized === "creds.json" ||
+                normalized.endsWith("/creds.json")
+            ) {
+                hasCreds = true;
+            }
+        }
+
+        if (!hasCreds) {
+            throw new Error(
+                "Session archive does not contain creds.json"
+            );
+        }
+
+        return {
+            tarBuffer,
+            entries
+        };
+
+    } finally {
+
+        try {
+            fs.rmSync(
+                tempTar,
+                {
+                    force: true
+                }
+            );
+        } catch {}
+    }
+}
+
+// ============================================================
+// EXTRACT SESSION
+// ============================================================
+
+function restoreSessionArchive(
+    session,
+    destination
+) {
+
+    const decoded =
+        decodeSessionArchive(session);
+
+    const tempTar = path.join(
+        TEMP_DIR,
+        `restore-${crypto.randomBytes(8).toString("hex")}.tar`
+    );
+
+    try {
+
+        fs.writeFileSync(
+            tempTar,
+            decoded.tarBuffer
+        );
+
+        /*
+         * Validate every path again before extraction.
+         */
+
+        for (const entry of decoded.entries) {
+            safeRelativePath(entry);
+        }
+
+        fs.rmSync(
+            destination,
+            {
+                recursive: true,
+                force: true
+            }
+        );
+
+        fs.mkdirSync(
+            destination,
+            {
+                recursive: true
+            }
+        );
+
+        execFileSync(
+            "tar",
+            [
+                "-xf",
+                tempTar,
+                "-C",
+                destination
+            ],
+            {
+                stdio: "ignore"
+            }
+        );
+
+        const credsPath = path.join(
+            destination,
+            "creds.json"
+        );
+
+        if (!fs.existsSync(credsPath)) {
+            throw new Error(
+                "Restored session has no creds.json"
+            );
+        }
+
+        return true;
+
+    } finally {
+
+        try {
+            fs.rmSync(
+                tempTar,
+                {
+                    force: true
+                }
+            );
+        } catch {}
+    }
+}
+
+// ============================================================
+// READ SESSION ACCOUNT
+// ============================================================
+
+function getSessionAccount(authPath) {
+
+    const credsPath = path.join(
+        authPath,
+        "creds.json"
+    );
+
+    if (!fs.existsSync(credsPath)) {
+        throw new Error(
+            "creds.json missing"
+        );
+    }
+
+    const creds = JSON.parse(
+        fs.readFileSync(
+            credsPath,
+            "utf8"
+        )
+    );
+
+    const number =
+        normalizeNumber(
+            creds?.me?.id
+        );
+
+    return {
+        number,
+        registered: !!creds?.registered
+    };
+}
+
+// ============================================================
+// LOGGING
+// ============================================================
+
+function log(...args) {
+    console.log(
+        new Date().toISOString(),
+        ...args
+    );
+}
+
+// ============================================================
+// ACTIVE PAIRING
+// ============================================================
+
+const pairingSockets = new Map();
+
+const pairingLocks = new Map();
+
+// ============================================================
+// SEND LARGE SESSION
+// ============================================================
+
+async function sendSessionInChunks(
+    sock,
+    jid,
+    session
+) {
+
+    /*
+     * WhatsApp message limits mean we split
+     * the archive into manageable chunks.
+     */
+
+    const chunkSize = 40000;
+
+    const total = Math.ceil(
+        session.length / chunkSize
+    );
+
+    await sock.sendMessage(
+        jid,
+        {
+            text:
+                `*ETIAS-MINI-BOT SESSION*\n\n` +
+                `Session generated successfully.\n` +
+                `Parts: ${total}\n\n` +
+                `Combine the parts in order before deploying.`
+        }
+    );
+
+    for (
+        let i = 0;
+        i < total;
+        i++
+    ) {
+
+        const chunk =
+            session.slice(
+                i * chunkSize,
+                (i + 1) * chunkSize
+            );
+
+        await sock.sendMessage(
+            jid,
+            {
+                text:
+                    `ETIAS-MINI-BOT~PART:${i + 1}/${total}\n\n` +
+                    chunk
+            }
+        );
+
+        await new Promise(
+            resolve =>
+                setTimeout(resolve, 700)
+        );
+    }
+
+    await sock.sendMessage(
+        jid,
+        {
+            text:
+                `*SESSION COMPLETE*\n\n` +
+                `Copy PART 1 through PART ${total} in order and combine them into one session string.`
+        }
+    );
+}
+
+// ============================================================
+// PAIR NUMBER
+// ============================================================
+
+async function pairNumber(number) {
+
+    const cleanNumber =
+        normalizeNumber(number);
+
+    if (
+        cleanNumber.length < 8
+    ) {
+        throw new Error(
+            "Invalid phone number"
+        );
+    }
+
+    if (
+        pairingLocks.has(cleanNumber)
+    ) {
+        throw new Error(
+            "Pairing already in progress"
+        );
+    }
+
+    pairingLocks.set(
+        cleanNumber,
+        true
+    );
+
+    const authPath =
+        path.join(
+            AUTH_DIR,
+            `ETIAS_${cleanNumber}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`
+        );
+
+    fs.mkdirSync(
+        authPath,
+        {
+            recursive: true
+        }
+    );
+
+    try {
+
+        const {
+            state,
+            saveCreds
+        } = await useMultiFileAuthState(
+            authPath
+        );
+
+        const sock =
+            makeWASocket({
+                auth: state,
+
+                logger: Pino({
+                    level: "silent"
+                }),
+
+                printQRInTerminal: false,
+
+                browser: [
+                    "ETIAS-MINI-BOT",
+                    "Chrome",
+                    "1.0.0"
+                ],
+
+                markOnlineOnConnect: false,
+
+                syncFullHistory: false
+            });
+
+        pairingSockets.set(
+            cleanNumber,
+            {
+                sock,
+                authPath
+            }
+        );
+
+        sock.ev.on(
+            "creds.update",
+            saveCreds
+        );
+
+        /*
+         * Request pairing code.
+         */
+
+        const code =
+            await sock.requestPairingCode(
+                cleanNumber
+            );
+
+        log(
+            `[PAIRING CODE] ${cleanNumber}: ${code}`
+        );
+
+        sock.ev.on(
+            "connection.update",
+            async update => {
+
+                const {
+                    connection,
+                    lastDisconnect
+                } = update;
+
+                if (
+                    connection === "open"
+                ) {
+
+                    log(
+                        `[PAIRED] ${cleanNumber}`
+                    );
+
+                    try {
+
+                        /*
+                         * Give creds.update time
+                         * to finish writing files.
+                         */
+
+                        await new Promise(
+                            resolve =>
+                                setTimeout(
+                                    resolve,
+                                    1500
+                                )
+                        );
+
+                        const account =
+                            getSessionAccount(
+                                authPath
+                            );
+
+                        if (
+                            !account.registered
+                        ) {
+
+                            log(
+                                `[PAIR WARNING] Session not registered`
+                            );
+
+                        }
+
+                        const session =
+                            createSessionArchive(
+                                authPath
+                            );
+
+                        const deployed =
+                            getDeployed();
+
+                        deployed[
+                            cleanNumber
+                        ] = {
+                            userNumber:
+                                cleanNumber,
+
+                            phone:
+                                account.number ||
+                                cleanNumber,
+
+                            sessionId:
+                                session,
+
+                            days:
+                                DEFAULT_DAYS,
+
+                            createdAt:
+                                Date.now(),
+
+                            expiresAt:
+                                Date.now() +
+                                DEFAULT_DAYS *
+                                24 *
+                                60 *
+                                60 *
+                                1000
+                        };
+
+                        saveDeployed(
+                            deployed
+                        );
+
+                        log(
+                            `[SESSION SAVED] ${cleanNumber} length=${session.length}`
+                        );
+
+                        await sendSessionInChunks(
+                            sock,
+                            sock.user?.id ||
+                                `${cleanNumber}@s.whatsapp.net`,
+                            session
+                        );
+
+                    } catch (e) {
+
+                        log(
+                            `[SESSION ERROR]`,
+                            e.message
+                        );
+                    }
+
+                    /*
+                     * Keep the auth directory.
+                     * Do NOT delete it.
+                     */
+
+                    pairingSockets.delete(
+                        cleanNumber
+                    );
+
+                    return;
+                }
+
+                if (
+                    connection === "close"
+                ) {
+
+                    const code =
+                        lastDisconnect
+                            ?.error
+                            ?.output
+                            ?.statusCode;
+
+                    log(
+                        `[PAIR CLOSED] ${cleanNumber} code=${code}`
+                    );
+
+                    pairingSockets.delete(
+                        cleanNumber
+                    );
+
+                    /*
+                     * 515 commonly happens after
+                     * successful pairing because WhatsApp
+                     * asks the client to restart.
+                     *
+                     * The credentials are already saved.
+                     */
+
+                    if (
+                        code === 515
+                    ) {
+
+                        log(
+                            `[PAIR] 515 received. Credentials should remain saved.`
+                        );
+                    }
+                }
+            }
+        );
+
+        return {
+            code,
+            authPath
+        };
+
+    } finally {
+
+        pairingLocks.delete(
+            cleanNumber
+        );
+    }
+}
+
+// ============================================================
+// PAIR PAGE
+// ============================================================
+
+app.get(
+    "/",
+    (req, res) => {
+
+        res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ETIAS-MINI-BOT Pair</title>
+
+<style>
+body{
+    margin:0;
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#050816;
+    color:#fff;
+    font-family:Arial,sans-serif;
+}
+.card{
+    width:min(450px,90%);
+    background:#10172a;
+    padding:30px;
+    border-radius:20px;
+    box-shadow:0 0 35px rgba(0,255,255,.2);
+}
+h1{
+    text-align:center;
+}
+input,button{
+    width:100%;
+    box-sizing:border-box;
+    padding:14px;
+    margin-top:12px;
+    border-radius:10px;
+    border:0;
+}
+button{
+    background:#00e5ff;
+    color:#000;
+    font-weight:bold;
+    cursor:pointer;
+}
+#result{
+    margin-top:20px;
+    white-space:pre-wrap;
+    word-break:break-word;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+<h1>ETIAS-MINI-BOT</h1>
+
+<p>
+Enter your WhatsApp number with country code.
+</p>
+
+<input
+ id="number"
+ placeholder="263778810589"
+>
+
+<button onclick="pair()">
+GET PAIRING CODE
+</button>
+
+<div id="result"></div>
+
+</div>
+
+<script>
+
+async function pair(){
+
+    const number =
+        document.getElementById("number").value.trim();
+
+    if(!number){
+        alert("Enter your WhatsApp number");
+        return;
+    }
+
+    const result =
+        document.getElementById("result");
+
+    result.textContent =
+        "Requesting pairing code...";
+
     try{
-      const raw = fs.readFileSync(credsPath,'utf8');
-      if(fs.statSync(credsPath).size > 300){
-        const session = `ETIAS-MINI-BOT~${Buffer.from(raw).toString('base64')}`;
-        return res.json({connected:true, session});
-      }
-    }catch{}
-  }
-  res.json({connected:false});
-});
 
-app.get('/qr-image', async (req,res)=>{
-  const id='QR_'+Date.now();
-  const authFolder=`./auth/${id}`;
-  try{
-    const {state, saveCreds} = await useMultiFileAuthState(authFolder);
-    const sock = makeWASocket({ auth:state, logger:pino({level:'silent'}), browser:Browsers.macOS('Chrome') });
-    sock.ev.on('creds.update', saveCreds);
-    const qrData = await new Promise((resolve,reject)=>{
-      let t=setTimeout(()=>reject('timeout'),30000);
-      sock.ev.on('connection.update', async u=>{
-        if(u.qr){ clearTimeout(t); resolve(await qrcode.toDataURL(u.qr)); }
-        if(u.connection==='close'){ clearTimeout(t); reject('closed'); }
-      });
-    });
-    res.json({qr:qrData});
-    setTimeout(()=>{ try{fs.rmSync(authFolder,{recursive:true,force:true})}catch{} }, 90000);
-  }catch(e){ res.status(500).json({error:'QR failed refresh'}); try{fs.rmSync(authFolder,{recursive:true,force:true})}catch{} }
-});
+        const res =
+            await fetch("/api/pair",{
+                method:"POST",
 
-// Keep alive
-app.get('/ping', (req,res)=> res.send('ETIAS-PAIR alive '+new Date().toISOString()));
-app.get('/health', (req,res)=> res.json({status:'alive', total:getDB().length}));
+                headers:{
+                    "Content-Type":
+                        "application/json"
+                },
 
-setInterval(async ()=>{ try{ await fetch(`http://localhost:${PORT}/ping`).catch(()=>{}) }catch{} }, 14*60*1000);
+                body:JSON.stringify({
+                    number
+                })
+            });
 
-app.listen(PORT, '0.0.0.0', ()=> console.log(`✅ ETIAS PAIR running on ${PORT} - REAL STATS`));
+        const data =
+            await res.json();
+
+        if(!data.success){
+
+            result.textContent =
+                "❌ " + data.error;
+
+            return;
+        }
+
+        result.textContent =
+            "PAIRING CODE:\\n\\n" +
+            data.code +
+            "\\n\\nOpen WhatsApp → Linked Devices → Link a Device → Link with phone number and enter this code.";
+
+    }catch(e){
+
+        result.textContent =
+            "❌ " + e.message;
+    }
+}
+
+</script>
+
+</body>
+</html>
+`);
+    }
+);
+
+// ============================================================
+// API PAIR
+// ============================================================
+
+app.post(
+    "/api/pair",
+    async (req, res) => {
+
+        try {
+
+            const number =
+                normalizeNumber(
+                    req.body.number
+                );
+
+            if (
+                !number ||
+                number.length < 8
+            ) {
+
+                return res.json({
+                    success:false,
+                    error:
+                        "Invalid WhatsApp number"
+                });
+            }
+
+            const result =
+                await pairNumber(
+                    number
+                );
+
+            res.json({
+                success:true,
+                code:result.code,
+                number,
+                message:
+                    "Pairing code generated"
+            });
+
+        } catch (e) {
+
+            console.log(
+                "[PAIR ERROR]",
+                e.message
+            );
+
+            res.json({
+                success:false,
+                error:e.message
+            });
+        }
+    }
+);
+
+// ============================================================
+// SESSION INFO
+// ============================================================
+
+app.get(
+    "/api/session/:number",
+    (req, res) => {
+
+        const number =
+            normalizeNumber(
+                req.params.number
+            );
+
+        const deployed =
+            getDeployed();
+
+        const data =
+            deployed[number];
+
+        if (!data) {
+
+            return res.json({
+                success:false,
+                error:
+                    "Session not found"
+            });
+        }
+
+        res.json({
+            success:true,
+            number:data.userNumber,
+            days:data.days,
+            createdAt:data.createdAt,
+            expiresAt:data.expiresAt,
+            sessionLength:
+                data.sessionId?.length || 0
+        });
+    }
+);
+
+// ============================================================
+// DEPLOYED SESSIONS
+// ============================================================
+
+app.get(
+    "/api/sessions",
+    (req, res) => {
+
+        const deployed =
+            getDeployed();
+
+        const result =
+            Object.values(deployed)
+                .map(item => ({
+                    userNumber:
+                        item.userNumber,
+
+                    phone:
+                        item.phone,
+
+                    days:
+                        item.days,
+
+                    createdAt:
+                        item.createdAt,
+
+                    expiresAt:
+                        item.expiresAt,
+
+                    sessionLength:
+                        item.sessionId?.length || 0
+                }));
+
+        res.json({
+            success:true,
+            sessions:result
+        });
+    }
+);
+
+// ============================================================
+// HEALTH
+// ============================================================
+
+app.get(
+    "/health",
+    (req, res) => {
+
+        res.json({
+            status:"online",
+            service:
+                "ETIAS-MINI-BOT Pairing Server",
+            sessions:
+                Object.keys(
+                    getDeployed()
+                ).length
+        });
+    }
+);
+
+// ============================================================
+// START
+// ============================================================
+
+app.listen(
+    PORT,
+    () => {
+
+        console.log("");
+        console.log(
+            "=========================================="
+        );
+        console.log(
+            " ETIAS-MINI-BOT PAIRING SERVER"
+        );
+        console.log(
+            "=========================================="
+        );
+        console.log(
+            ` PORT: ${PORT}`
+        );
+        console.log(
+            ` OWNER: ${OWNER_NUMBER}`
+        );
+        console.log(
+            ` AUTH: ${AUTH_DIR}`
+        );
+        console.log(
+            ` DATA: ${DATA_DIR}`
+        );
+        console.log(
+            " SESSION: TAR.GZ + BASE64"
+        );
+        console.log(
+            "=========================================="
+        );
+        console.log("");
+    }
+);

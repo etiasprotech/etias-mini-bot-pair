@@ -20,6 +20,7 @@
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "axios": "^1.7.2",
     "cors": "^2.8.5",
+    "dotenv": "^18.0.4",
     "express": "^4.22.3",
     "pino": "^8.21.0",
     "qrcode": "^1.5.4"
