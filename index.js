@@ -1371,16 +1371,9 @@ app.get(
 
             if (!number) {
 
-                return res.status(
-                    400
-                ).json({
-
-                    success:
-                        false,
-
-                    error:
-                        "Phone number is required"
-
+                return res.status(400).json({
+                    success: false,
+                    error: "Phone number is required"
                 });
             }
 
@@ -1388,10 +1381,7 @@ app.get(
                 getAllPairings()
                     .find(
                         item =>
-
-                            item.number ===
-                                number &&
-
+                            item.number === number &&
                             [
                                 "starting",
                                 "connecting",
@@ -1401,43 +1391,52 @@ app.get(
                                 "generating_session",
                                 "awaiting_deployment",
                                 "deployed"
-                            ].includes(
-                                item.status
-                            )
+                            ].includes(item.status)
                     );
+
+            /*
+             * If a pairing is already active, return
+             * its current information.
+             *
+             * The pairing code is intentionally returned
+             * only when it is currently available.
+             */
 
             if (existing) {
 
+                if (
+                    existing.status === "pairing_code" &&
+                    existing.pairingCode
+                ) {
+
+                    return res.json({
+                        success: true,
+                        pairingId: existing.id,
+                        sessionId: existing.sessionId || null,
+                        number,
+                        status: "pairing_code",
+                        pairingCode: existing.pairingCode,
+                        message:
+                            "Enter this pairing code in WhatsApp Linked Devices."
+                    });
+                }
+
                 return res.json({
-
-                    success:
-                        true,
-
-                    pairingId:
-                        existing.id,
-
-                    sessionId:
-                        existing.sessionId ||
-                        null,
-
+                    success: true,
+                    pairingId: existing.id,
+                    sessionId: existing.sessionId || null,
                     number,
-
-                    status:
-                        existing.status,
-
+                    status: existing.status,
                     message:
                         "Pairing session already exists."
-
                 });
             }
 
             const pairing =
-                createPairing(
-                    number
-                );
+                createPairing(number);
 
             /*
-             * Generate the real Session ID now.
+             * Generate the real Session ID immediately.
              */
 
             const sessionId =
@@ -1446,26 +1445,21 @@ app.get(
             updatePairing(
                 pairing.id,
                 {
-
                     sessionId,
-
                     number,
-
-                    status:
-                        "starting"
-
+                    status: "starting"
                 }
             );
 
+            /*
+             * Start WhatsApp asynchronously.
+             */
+
             startPairing(
                 number,
-
                 pairing.id,
-
                 null,
-
                 sessionId
-
             ).catch(
                 error => {
 
@@ -1477,34 +1471,137 @@ app.get(
                     updatePairing(
                         pairing.id,
                         {
-
                             sessionId,
-
-                            status:
-                                "error",
-
+                            status: "error",
+                            connected: false,
                             error:
                                 error.message ||
                                 String(error)
-
                         }
                     );
                 }
             );
 
-            await sleep(
-                1200
-            );
+            /*
+             * startPairing() waits 5 seconds before
+             * requesting the WhatsApp pairing code.
+             *
+             * Therefore the old 1.2-second wait was
+             * too short.
+             *
+             * Wait up to 30 seconds and check once
+             * every second.
+             */
 
-            const current =
-                getPairing(
-                    pairing.id
-                );
+            let current = null;
+            let pairingCode = null;
+
+            for (
+                let attempt = 0;
+                attempt < 30;
+                attempt++
+            ) {
+
+                await sleep(1000);
+
+                current =
+                    getPairing(
+                        pairing.id
+                    );
+
+                if (!current) {
+                    break;
+                }
+
+                if (
+                    current.status === "pairing_code" &&
+                    current.pairingCode
+                ) {
+
+                    pairingCode =
+                        current.pairingCode;
+
+                    break;
+                }
+
+                if (
+                    current.status === "error"
+                ) {
+
+                    break;
+                }
+
+                if (
+                    current.status === "awaiting_deployment" ||
+                    current.status === "deployed"
+                ) {
+
+                    break;
+                }
+            }
+
+            /*
+             * Actual WhatsApp pairing code is ready.
+             */
+
+            if (pairingCode) {
+
+                return res.json({
+
+                    success: true,
+
+                    pairingId:
+                        pairing.id,
+
+                    sessionId,
+
+                    number,
+
+                    status:
+                        "pairing_code",
+
+                    pairingCode,
+
+                    message:
+                        "Enter this pairing code in WhatsApp Linked Devices."
+                });
+            }
+
+            /*
+             * Pairing failed.
+             */
+
+            if (
+                current?.status === "error"
+            ) {
+
+                return res.status(500).json({
+
+                    success: false,
+
+                    pairingId:
+                        pairing.id,
+
+                    sessionId,
+
+                    number,
+
+                    status:
+                        "error",
+
+                    error:
+                        current.error ||
+                        "Failed to generate WhatsApp pairing code."
+                });
+            }
+
+            /*
+             * The socket is still starting.
+             */
 
             return res.json({
 
-                success:
-                    true,
+                success: true,
 
                 pairingId:
                     pairing.id,
@@ -1515,26 +1612,26 @@ app.get(
 
                 status:
                     current?.status ||
-                    "starting",
+                    "connecting",
 
                 message:
-                    "Pairing started. Use the WhatsApp pairing code. After successful pairing, your Session ID will be sent to WhatsApp."
-
+                    "Pairing is still starting. Check the pairing status again."
             });
 
         } catch (error) {
 
-            return res.status(
-                500
-            ).json({
+            console.error(
+                "[CODE ROUTE ERROR]",
+                error
+            );
 
-                success:
-                    false,
+            return res.status(500).json({
+
+                success: false,
 
                 error:
                     error.message ||
                     String(error)
-
             });
         }
     }
