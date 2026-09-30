@@ -28,50 +28,75 @@ const {
 } = require("./id");
 
 const {
-    generateAndSendSession
+    generateAndSendSession,
+    verifyDeploymentCode,
+    getDeploymentCodeStatus,
+    deleteDeploymentCode
 } = require("./session");
 
 const app = express();
 
-const PORT = process.env.PORT || 3000;
+const PORT =
+    process.env.PORT || 3000;
+
 const ROOT = __dirname;
 
-const AUTH_DIR = path.join(ROOT, "auth");
-const DATA_DIR = path.join(ROOT, "data");
-const MEDIA_DIR = path.join(ROOT, "media");
-const TEMP_AUTH_DIR = path.join(ROOT, "temp_auth");
+const AUTH_DIR =
+    path.join(ROOT, "auth");
+
+const DATA_DIR =
+    path.join(ROOT, "data");
+
+const MEDIA_DIR =
+    path.join(ROOT, "media");
+
+const TEMP_AUTH_DIR =
+    path.join(ROOT, "temp_auth");
 
 const logger = pino({
-    level: process.env.LOG_LEVEL || "silent"
+    level:
+        process.env.LOG_LEVEL ||
+        "silent"
 });
 
 const sockets = new Map();
 const reconnecting = new Set();
 
 /* =========================================================
-   HELPERS
+   DIRECTORIES
 ========================================================= */
 
 async function ensureDirectories() {
-    await fsp.mkdir(AUTH_DIR, {
-        recursive: true
-    });
+    await fsp.mkdir(
+        AUTH_DIR,
+        { recursive: true }
+    );
 
-    await fsp.mkdir(DATA_DIR, {
-        recursive: true
-    });
+    await fsp.mkdir(
+        DATA_DIR,
+        { recursive: true }
+    );
 
-    await fsp.mkdir(MEDIA_DIR, {
-        recursive: true
-    });
+    await fsp.mkdir(
+        MEDIA_DIR,
+        { recursive: true }
+    );
 
-    await fsp.mkdir(TEMP_AUTH_DIR, {
-        recursive: true
-    });
+    await fsp.mkdir(
+        TEMP_AUTH_DIR,
+        { recursive: true }
+    );
 }
 
+/* =========================================================
+   HELPERS
+========================================================= */
+
 function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(
+        resolve =>
+            setTimeout(resolve, ms)
+    );
 }
 
 function cleanNumber(number) {
@@ -79,93 +104,107 @@ function cleanNumber(number) {
         .replace(/\D/g, "");
 }
 
-/*
- * Normalize WhatsApp JID.
- *
- * Example:
- * 263771234567:12@s.whatsapp.net
- *
- * becomes:
- *
- * 263771234567@s.whatsapp.net
- */
 function normalizeJid(jid) {
-    if (!jid) return null;
+    if (!jid) {
+        return null;
+    }
 
     return String(jid)
         .trim()
         .replace(/:\d+(?=@)/, "");
 }
 
-function getDisconnectCode(lastDisconnect) {
+function getDisconnectCode(
+    lastDisconnect
+) {
     return (
-        lastDisconnect?.error?.output?.statusCode ||
-        lastDisconnect?.error?.data?.statusCode ||
-        lastDisconnect?.error?.statusCode ||
+        lastDisconnect?.error
+            ?.output?.statusCode ||
+        lastDisconnect?.error
+            ?.data?.statusCode ||
+        lastDisconnect?.error
+            ?.statusCode ||
         null
     );
 }
 
 function isLoggedOut(code) {
-    return code === DisconnectReason.loggedOut;
+    return (
+        code ===
+        DisconnectReason.loggedOut
+    );
 }
 
 function isBadSession(code) {
-    return code === DisconnectReason.badSession;
+    return (
+        code ===
+        DisconnectReason.badSession
+    );
 }
 
 function isRestartRequired(code) {
-    return code === DisconnectReason.restartRequired;
+    return (
+        code ===
+        DisconnectReason.restartRequired
+    );
 }
 
 /* =========================================================
-   SAVE SUCCESSFUL SESSION
+   SAVE SUCCESSFUL DEPLOYMENT
 ========================================================= */
 
-async function saveSuccessfulSession(
+async function saveSuccessfulDeployment(
     pairingId,
     number,
     jid,
-    sessionId,
     authFolder
 ) {
-    const now = new Date().toISOString();
+    const now =
+        new Date().toISOString();
 
     updatePairing(
         pairingId,
         {
-            status: "connected",
+            status: "deployed",
             connected: true,
             sent: true,
-            sessionId,
             jid,
             authFolder,
-            sessionSentAt: now
+            deployedAt: now
         }
     );
 
-    /*
-     * Persistence happens only after
-     * the session has successfully been generated
-     * and sent.
-     */
     await addDeployedUser({
-        id: generateUserId(),
+        id:
+            generateUserId(),
+
         pairingId,
+
         number,
+
         jid,
-        sessionId,
+
         authFolder,
-        status: "connected",
-        connected: true,
-        sent: true,
-        sessionSentAt: now,
-        createdAt: now
+
+        status:
+            "deployed",
+
+        connected:
+            true,
+
+        sent:
+            true,
+
+        deployedAt:
+            now,
+
+        createdAt:
+            now
     });
 }
 
 /* =========================================================
-   START PAIRING
+   START WHATSAPP PAIRING
 ========================================================= */
 
 async function startPairing(
@@ -173,21 +212,26 @@ async function startPairing(
     pairingId,
     existingAuthFolder = null
 ) {
-    const clean = cleanNumber(number);
+    const clean =
+        cleanNumber(number);
 
     if (!clean) {
-        throw new Error("Invalid phone number");
+        throw new Error(
+            "Invalid phone number"
+        );
     }
 
-    let authFolder = existingAuthFolder;
+    let authFolder =
+        existingAuthFolder;
 
     if (!authFolder) {
-        authFolder = path.join(
-            AUTH_DIR,
-            `ETIAS_${clean}_${Date.now()}_${Math.random()
-                .toString(16)
-                .slice(2, 10)}`
-        );
+        authFolder =
+            path.join(
+                AUTH_DIR,
+                `ETIAS_${clean}_${Date.now()}_${Math.random()
+                    .toString(16)
+                    .slice(2, 10)}`
+            );
     }
 
     await fsp.mkdir(
@@ -204,35 +248,49 @@ async function startPairing(
     const {
         state,
         saveCreds
-    } = await useMultiFileAuthState(
-        authFolder
-    );
+    } =
+        await useMultiFileAuthState(
+            authFolder
+        );
 
-    const sock = makeWASocket({
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(
-                state.keys,
-                logger
-            )
-        },
+    const sock =
+        makeWASocket({
+            auth: {
+                creds:
+                    state.creds,
 
-        logger,
+                keys:
+                    makeCacheableSignalKeyStore(
+                        state.keys,
+                        logger
+                    )
+            },
 
-        browser: Browsers.macOS("Chrome"),
+            logger,
 
-        markOnlineOnConnect: false,
+            browser:
+                Browsers.macOS(
+                    "Chrome"
+                ),
 
-        syncFullHistory: false,
+            markOnlineOnConnect:
+                false,
 
-        generateHighQualityLinkPreview: false,
+            syncFullHistory:
+                false,
 
-        connectTimeoutMs: 60000,
+            generateHighQualityLinkPreview:
+                false,
 
-        defaultQueryTimeoutMs: 60000,
+            connectTimeoutMs:
+                60000,
 
-        keepAliveIntervalMs: 25000
-    });
+            defaultQueryTimeoutMs:
+                60000,
+
+            keepAliveIntervalMs:
+                25000
+        });
 
     sockets.set(
         pairingId,
@@ -242,15 +300,15 @@ async function startPairing(
     updatePairing(
         pairingId,
         {
-            status: "connecting",
-            connected: false,
+            status:
+                "connecting",
+
+            connected:
+                false,
+
             authFolder
         }
     );
-
-    /* =====================================================
-       CREDENTIAL UPDATES
-    ===================================================== */
 
     sock.ev.on(
         "creds.update",
@@ -270,30 +328,33 @@ async function startPairing(
                 qr
             } = update;
 
-            /* =================================================
+            /* =============================================
                QR
-            ================================================= */
+            ============================================= */
 
             if (qr) {
                 updatePairing(
                     pairingId,
                     {
-                        status: "qr",
-                        connected: false,
+                        status:
+                            "qr",
 
-                        qr:
-                            `https://wa.me/settings/linked_devices#${qr}`
+                        connected:
+                            false
                     }
                 );
 
                 try {
                     const qrData =
-                        await QRCode.toDataURL(qr);
+                        await QRCode.toDataURL(
+                            qr
+                        );
 
                     updatePairing(
                         pairingId,
                         {
-                            qrImage: qrData
+                            qrImage:
+                                qrData
                         }
                     );
                 } catch (error) {
@@ -304,11 +365,14 @@ async function startPairing(
                 }
             }
 
-            /* =================================================
+            /* =============================================
                CONNECTING
-            ================================================= */
+            ============================================= */
 
-            if (connection === "connecting") {
+            if (
+                connection ===
+                "connecting"
+            ) {
                 console.log(
                     `[PAIR] Connecting: ${pairingId}`
                 );
@@ -316,17 +380,23 @@ async function startPairing(
                 updatePairing(
                     pairingId,
                     {
-                        status: "connecting",
-                        connected: false
+                        status:
+                            "connecting",
+
+                        connected:
+                            false
                     }
                 );
             }
 
-            /* =================================================
-               CONNECTED
-            ================================================= */
+            /* =============================================
+               OPEN
+            ============================================= */
 
-            if (connection === "open") {
+            if (
+                connection ===
+                "open"
+            ) {
                 console.log(
                     "========================================"
                 );
@@ -340,7 +410,10 @@ async function startPairing(
                 );
 
                 console.log(
-                    `SOCKET JID: ${sock.user?.id || "unknown"}`
+                    `JID: ${
+                        sock.user?.id ||
+                        "unknown"
+                    }`
                 );
 
                 console.log(
@@ -349,8 +422,7 @@ async function startPairing(
 
                 try {
                     /*
-                     * Give Baileys time to finish
-                     * writing credentials.
+                     * Allow credential writes to finish.
                      */
                     await sleep(2500);
 
@@ -372,32 +444,30 @@ async function startPairing(
                             authenticatedJid
                         );
 
-                    console.log(
-                        `[PAIR] Authenticated JID: ${authenticatedJid}`
-                    );
-
-                    console.log(
-                        `[PAIR] Normalized JID: ${normalizedJid}`
-                    );
-
                     updatePairing(
                         pairingId,
                         {
-                            status: "generating_session",
-                            connected: true,
-                            jid: authenticatedJid,
+                            status:
+                                "generating_code",
+
+                            connected:
+                                true,
+
+                            jid:
+                                authenticatedJid,
+
                             authFolder
                         }
                     );
 
-                    /* =========================================
-                       GENERATE + SEND SESSION
-                    ========================================= */
-
                     console.log(
-                        "[SESSION] Generating and sending SESSION_ID..."
+                        "[DEPLOYMENT] Generating 8-digit code..."
                     );
 
+                    /*
+                     * Generates the one-time deployment
+                     * code and sends it directly to WhatsApp.
+                     */
                     const result =
                         await generateAndSendSession(
                             sock,
@@ -407,55 +477,44 @@ async function startPairing(
                             normalizedJid
                         );
 
-                    if (!result) {
-                        throw new Error(
-                            "generateAndSendSession returned no result"
-                        );
-                    }
-
-                    const sessionId =
+                    const deploymentCode =
+                        result.deploymentCode ||
                         result.sessionId;
 
-                    if (!sessionId) {
+                    if (!deploymentCode) {
                         throw new Error(
-                            "generateAndSendSession did not return sessionId"
+                            "Deployment code was not generated"
                         );
                     }
 
                     console.log(
-                        "[SESSION] SESSION_ID generated successfully"
+                        "[DEPLOYMENT] Code sent successfully"
                     );
 
-                    console.log(
-                        `[SESSION] SESSION_ID length: ${sessionId.length}`
-                    );
-
+                    /*
+                     * Do not put the actual code into
+                     * the public pairing status.
+                     */
                     updatePairing(
                         pairingId,
                         {
-                            status: "session_ready",
-                            connected: true,
-                            sent: true,
-                            sessionId,
-                            jid: authenticatedJid,
-                            authFolder
+                            status:
+                                "awaiting_deployment",
+
+                            connected:
+                                true,
+
+                            sent:
+                                true,
+
+                            jid:
+                                authenticatedJid,
+
+                            authFolder,
+
+                            codeExpiresAt:
+                                result.expiresAt
                         }
-                    );
-
-                    console.log(
-                        "[SESSION] Automatic delivery complete"
-                    );
-
-                    /* =========================================
-                       SAVE DEPLOYED USER
-                    ========================================= */
-
-                    await saveSuccessfulSession(
-                        pairingId,
-                        clean,
-                        authenticatedJid,
-                        sessionId,
-                        authFolder
                     );
 
                     console.log(
@@ -463,7 +522,7 @@ async function startPairing(
                     );
 
                     console.log(
-                        "🎉 PAIRING COMPLETE"
+                        "📲 DEPLOYMENT CODE SENT"
                     );
 
                     console.log(
@@ -471,15 +530,11 @@ async function startPairing(
                     );
 
                     console.log(
-                        `NUMBER: ${clean}`
-                    );
-
-                    console.log(
                         `JID: ${authenticatedJid}`
                     );
 
                     console.log(
-                        "SESSION SENT: YES"
+                        "Waiting for code on deployment page..."
                     );
 
                     console.log(
@@ -488,27 +543,22 @@ async function startPairing(
 
                 } catch (error) {
                     console.error(
-                        "========================================"
-                    );
-
-                    console.error(
-                        "[SESSION ERROR]"
-                    );
-
-                    console.error(
+                        "[DEPLOYMENT ERROR]",
                         error
-                    );
-
-                    console.error(
-                        "========================================"
                     );
 
                     updatePairing(
                         pairingId,
                         {
-                            status: "session_error",
-                            connected: true,
-                            sent: false,
+                            status:
+                                "deployment_error",
+
+                            connected:
+                                true,
+
+                            sent:
+                                false,
+
                             error:
                                 error.message ||
                                 String(error)
@@ -517,11 +567,14 @@ async function startPairing(
                 }
             }
 
-            /* =================================================
-               CLOSED
-            ================================================= */
+            /* =============================================
+               CLOSE
+            ============================================= */
 
-            if (connection === "close") {
+            if (
+                connection ===
+                "close"
+            ) {
                 const code =
                     getDisconnectCode(
                         lastDisconnect
@@ -535,11 +588,13 @@ async function startPairing(
                     pairingId
                 );
 
-                /* =============================================
+                /* =========================================
                    LOGGED OUT
-                ============================================= */
+                ========================================= */
 
-                if (isLoggedOut(code)) {
+                if (
+                    isLoggedOut(code)
+                ) {
                     console.log(
                         "[PAIR] ❌ WhatsApp logged out"
                     );
@@ -547,19 +602,24 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
-                            status: "logged_out",
-                            connected: false
+                            status:
+                                "logged_out",
+
+                            connected:
+                                false
                         }
                     );
 
                     return;
                 }
 
-                /* =============================================
+                /* =========================================
                    BAD SESSION
-                ============================================= */
+                ========================================= */
 
-                if (isBadSession(code)) {
+                if (
+                    isBadSession(code)
+                ) {
                     console.log(
                         "[PAIR] ❌ Bad session"
                     );
@@ -567,17 +627,20 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
-                            status: "bad_session",
-                            connected: false
+                            status:
+                                "bad_session",
+
+                            connected:
+                                false
                         }
                     );
 
                     return;
                 }
 
-                /* =============================================
-                   PREVENT DUPLICATE RECONNECTS
-                ============================================= */
+                /* =========================================
+                   PREVENT DUPLICATE RECONNECT
+                ========================================= */
 
                 if (
                     reconnecting.has(
@@ -591,16 +654,19 @@ async function startPairing(
                     pairingId
                 );
 
-                console.log(
-                    "[PAIR] 🔄 Reconnecting using same auth folder..."
-                );
-
                 updatePairing(
                     pairingId,
                     {
-                        status: "reconnecting",
-                        connected: false
+                        status:
+                            "reconnecting",
+
+                        connected:
+                            false
                     }
+                );
+
+                console.log(
+                    "[PAIR] 🔄 Reconnecting..."
                 );
 
                 setTimeout(
@@ -629,8 +695,12 @@ async function startPairing(
                             updatePairing(
                                 pairingId,
                                 {
-                                    status: "error",
-                                    connected: false,
+                                    status:
+                                        "error",
+
+                                    connected:
+                                        false,
+
                                     error:
                                         error.message
                                 }
@@ -638,7 +708,9 @@ async function startPairing(
                         }
                     },
 
-                    isRestartRequired(code)
+                    isRestartRequired(
+                        code
+                    )
                         ? 1000
                         : 3000
                 );
@@ -646,33 +718,35 @@ async function startPairing(
         }
     );
 
-    /* =========================================================
+    /* =====================================================
        REQUEST PAIRING CODE
-    ========================================================= */
+    ===================================================== */
 
-    if (!state.creds.registered) {
+    if (
+        !state.creds.registered
+    ) {
         try {
             console.log(
-                "[PAIR] Waiting for WhatsApp connection..."
+                "[PAIR] Waiting before requesting pairing code..."
             );
 
-            /*
-             * Delay helps prevent the common
-             * 428 Connection Closed error.
-             */
             await sleep(5000);
 
             if (
-                sockets.get(pairingId) !==
-                sock
+                sockets.get(
+                    pairingId
+                ) !== sock
             ) {
                 throw new Error(
                     "Pairing socket is no longer active"
                 );
             }
 
-            let code = null;
-            let lastError = null;
+            let pairingCode =
+                null;
+
+            let lastError =
+                null;
 
             for (
                 let attempt = 1;
@@ -684,12 +758,14 @@ async function startPairing(
                         `[PAIR] Requesting pairing code ${attempt}/3...`
                     );
 
-                    code =
+                    pairingCode =
                         await sock.requestPairingCode(
                             clean
                         );
 
-                    if (code) {
+                    if (
+                        pairingCode
+                    ) {
                         break;
                     }
 
@@ -712,25 +788,29 @@ async function startPairing(
                 }
             }
 
-            if (!code) {
+            if (!pairingCode) {
                 throw (
                     lastError ||
                     new Error(
-                        "Failed to generate pairing code"
+                        "Failed to generate WhatsApp pairing code"
                     )
                 );
             }
 
             console.log(
-                `[PAIR] Pairing code: ${code}`
+                `[PAIR] Pairing code: ${pairingCode}`
             );
 
             updatePairing(
                 pairingId,
                 {
-                    status: "pairing_code",
-                    pairingCode: code,
-                    connected: false
+                    status:
+                        "pairing_code",
+
+                    pairingCode,
+
+                    connected:
+                        false
                 }
             );
 
@@ -743,8 +823,12 @@ async function startPairing(
             updatePairing(
                 pairingId,
                 {
-                    status: "error",
-                    connected: false,
+                    status:
+                        "error",
+
+                    connected:
+                        false,
+
                     error:
                         error.message ||
                         String(error)
@@ -757,19 +841,23 @@ async function startPairing(
 }
 
 /* =========================================================
-   EXPRESS CONFIGURATION
+   EXPRESS
 ========================================================= */
 
 app.use(
     express.json({
-        limit: "10mb"
+        limit:
+            "10mb"
     })
 );
 
 app.use(
     express.urlencoded({
-        extended: true,
-        limit: "10mb"
+        extended:
+            true,
+
+        limit:
+            "10mb"
     })
 );
 
@@ -833,9 +921,12 @@ app.get(
     "/ping",
     (req, res) => {
         res.json({
-            status: "ok",
+            status:
+                "ok",
+
             service:
                 "ETIAS-MINI-BOT Pair Server",
+
             time:
                 new Date().toISOString()
         });
@@ -850,11 +941,16 @@ app.get(
     "/health",
     (req, res) => {
         res.json({
-            status: "online",
+            status:
+                "online",
+
             sockets:
                 sockets.size,
+
             pairings:
-                getAllPairings().length,
+                getAllPairings()
+                    .length,
+
             uptime:
                 process.uptime()
         });
@@ -875,42 +971,49 @@ app.get(
                 );
 
             if (!number) {
-                return res.status(400).json({
-                    success: false,
+                return res.status(
+                    400
+                ).json({
+                    success:
+                        false,
+
                     error:
                         "Phone number is required"
                 });
             }
 
-            /*
-             * Don't create duplicate active
-             * pairing sessions for same number.
-             */
             const existing =
-                getAllPairings().find(
-                    item =>
-                        item.number ===
-                            number &&
-                        [
-                            "starting",
-                            "connecting",
-                            "pairing_code",
-                            "qr",
-                            "reconnecting",
-                            "generating_session"
-                        ].includes(
-                            item.status
-                        )
-                );
+                getAllPairings()
+                    .find(
+                        item =>
+                            item.number ===
+                                number &&
+                            [
+                                "starting",
+                                "connecting",
+                                "pairing_code",
+                                "qr",
+                                "reconnecting",
+                                "generating_code",
+                                "awaiting_deployment"
+                            ].includes(
+                                item.status
+                            )
+                    );
 
             if (existing) {
                 return res.json({
-                    success: true,
+                    success:
+                        true,
+
                     pairingId:
                         existing.id,
+
                     number,
+
                     status:
                         existing.status,
+
                     message:
                         "Pairing session already exists."
                 });
@@ -921,30 +1024,33 @@ app.get(
                     number
                 );
 
-            /*
-             * Start in background.
-             */
             startPairing(
                 number,
                 pairing.id
-            ).catch(error => {
-                console.error(
-                    "[PAIR] Startup error:",
-                    error
-                );
+            ).catch(
+                error => {
+                    console.error(
+                        "[PAIR] Startup error:",
+                        error
+                    );
 
-                updatePairing(
-                    pairing.id,
-                    {
-                        status: "error",
-                        error:
-                            error.message ||
-                            String(error)
-                    }
-                );
-            });
+                    updatePairing(
+                        pairing.id,
+                        {
+                            status:
+                                "error",
 
-            await sleep(1200);
+                            error:
+                                error.message ||
+                                String(error)
+                        }
+                    );
+                }
+            );
+
+            await sleep(
+                1200
+            );
 
             const current =
                 getPairing(
@@ -952,20 +1058,29 @@ app.get(
                 );
 
             return res.json({
-                success: true,
+                success:
+                    true,
+
                 pairingId:
                     pairing.id,
+
                 number,
+
                 status:
                     current?.status ||
                     "starting",
+
                 message:
-                    "Pairing session started. Check /status/:id."
+                    "Pairing started. Wait for the deployment code."
             });
 
         } catch (error) {
-            return res.status(500).json({
-                success: false,
+            return res.status(
+                500
+            ).json({
+                success:
+                    false,
+
                 error:
                     error.message ||
                     String(error)
@@ -987,16 +1102,36 @@ app.get(
             );
 
         if (!pairing) {
-            return res.status(404).json({
-                success: false,
+            return res.status(
+                404
+            ).json({
+                success:
+                    false,
+
                 error:
                     "Pairing ID not found"
             });
         }
 
-        return res.json({
-            success: true,
+        /*
+         * Never return a deployment code
+         * from this endpoint.
+         */
+        const safePairing = {
             ...pairing
+        };
+
+        delete safePairing
+            .deploymentCode;
+
+        delete safePairing
+            .sessionId;
+
+        res.json({
+            success:
+                true,
+
+            ...safePairing
         });
     }
 );
@@ -1014,32 +1149,44 @@ app.get(
             );
 
         if (!pairing) {
-            return res.status(404).json({
-                success: false,
+            return res.status(
+                404
+            ).json({
+                success:
+                    false,
+
                 error:
                     "Pairing ID not found"
             });
         }
 
         res.json({
-            success: true,
+            success:
+                true,
+
             id:
                 pairing.id,
+
             number:
                 pairing.number,
+
             status:
                 pairing.status,
+
             connected:
                 pairing.connected,
+
             sent:
                 pairing.sent,
-            hasSession:
-                Boolean(
-                    pairing.sessionId
-                ),
+
             jid:
                 pairing.jid ||
                 null,
+
+            codeExpiresAt:
+                pairing.codeExpiresAt ||
+                null,
+
             error:
                 pairing.error ||
                 null
@@ -1048,53 +1195,231 @@ app.get(
 );
 
 /* =========================================================
-   SESSION STATUS
+   DEPLOYMENT CODE STATUS
 ========================================================= */
 
 app.get(
-    "/session/:id",
+    "/deployment-status/:id",
     (req, res) => {
-        const pairing =
-            getPairing(
+        const status =
+            getDeploymentCodeStatus(
                 req.params.id
             );
 
-        if (!pairing) {
-            return res.status(404).json({
-                success: false,
+        if (!status) {
+            return res.status(
+                404
+            ).json({
+                success:
+                    false,
+
                 error:
-                    "Pairing ID not found"
+                    "Deployment code not found or expired"
             });
         }
 
-        /*
-         * Do not expose the actual session
-         * through an unauthenticated endpoint.
-         */
         res.json({
-            success: true,
+            success:
+                true,
 
             pairingId:
-                pairing.id,
-
-            status:
-                pairing.status,
-
-            connected:
-                pairing.connected,
-
-            sent:
-                pairing.sent,
+                status.pairingId,
 
             jid:
-                pairing.jid ||
-                null,
+                status.jid,
 
-            sessionAvailable:
-                Boolean(
-                    pairing.sessionId
-                )
+            expiresAt:
+                status.expiresAt,
+
+            used:
+                status.used
         });
+    }
+);
+
+/* =========================================================
+   DEPLOY
+========================================================= */
+
+app.post(
+    "/deploy",
+    async (req, res) => {
+        try {
+            const {
+                pairingId,
+                code
+            } = req.body;
+
+            if (!pairingId) {
+                return res.status(
+                    400
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        "pairingId is required"
+                });
+            }
+
+            if (!code) {
+                return res.status(
+                    400
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        "8-digit deployment code is required"
+                });
+            }
+
+            const pairing =
+                getPairing(
+                    pairingId
+                );
+
+            if (!pairing) {
+                return res.status(
+                    404
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        "Pairing ID not found"
+                });
+            }
+
+            /*
+             * Verify the one-time code.
+             */
+            const verification =
+                verifyDeploymentCode(
+                    pairingId,
+                    String(code)
+                        .trim()
+                );
+
+            if (
+                !verification.success
+            ) {
+                return res.status(
+                    401
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        verification.error
+                });
+            }
+
+            /*
+             * Verify the original socket still exists.
+             */
+            const sock =
+                sockets.get(
+                    pairingId
+                );
+
+            if (!sock) {
+                return res.status(
+                    410
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        "WhatsApp connection is no longer active"
+                });
+            }
+
+            /*
+             * Make sure the pairing was actually
+             * connected before deployment.
+             */
+            if (
+                !pairing.connected
+            ) {
+                return res.status(
+                    409
+                ).json({
+                    success:
+                        false,
+
+                    error:
+                        "WhatsApp account is not connected"
+                });
+            }
+
+            /*
+             * Persist the deployment.
+             */
+            await saveSuccessfulDeployment(
+                pairingId,
+                pairing.number,
+                verification.jid,
+                verification.authFolder
+            );
+
+            console.log(
+                "========================================"
+            );
+
+            console.log(
+                "🎉 DEPLOYMENT VERIFIED"
+            );
+
+            console.log(
+                `PAIR ID: ${pairingId}`
+            );
+
+            console.log(
+                `JID: ${verification.jid}`
+            );
+
+            console.log(
+                "AUTH STATE: STORED SERVER-SIDE"
+            );
+
+            console.log(
+                "========================================"
+            );
+
+            res.json({
+                success:
+                    true,
+
+                message:
+                    "Deployment verified successfully.",
+
+                pairingId,
+
+                jid:
+                    verification.jid,
+
+                status:
+                    "deployed"
+            });
+
+        } catch (error) {
+            console.error(
+                "[DEPLOY ERROR]",
+                error
+            );
+
+            res.status(
+                500
+            ).json({
+                success:
+                    false,
+
+                error:
+                    error.message ||
+                    String(error)
+            });
+        }
     }
 );
 
@@ -1110,8 +1435,12 @@ app.get(
                 req.query.id;
 
             if (!id) {
-                return res.status(400).json({
-                    success: false,
+                return res.status(
+                    400
+                ).json({
+                    success:
+                        false,
+
                     error:
                         "Pairing ID required"
                 });
@@ -1121,22 +1450,32 @@ app.get(
                 getPairing(id);
 
             if (!pairing) {
-                return res.status(404).json({
-                    success: false,
+                return res.status(
+                    404
+                ).json({
+                    success:
+                        false,
+
                     error:
                         "Pairing ID not found"
                 });
             }
 
             if (!pairing.qrImage) {
-                return res.status(404).json({
-                    success: false,
+                return res.status(
+                    404
+                ).json({
+                    success:
+                        false,
+
                     error:
                         "QR code not available"
                 });
             }
 
-            res.type("png");
+            res.type(
+                "png"
+            );
 
             const base64 =
                 pairing.qrImage
@@ -1153,8 +1492,12 @@ app.get(
             );
 
         } catch (error) {
-            res.status(500).json({
-                success: false,
+            res.status(
+                500
+            ).json({
+                success:
+                    false,
+
                 error:
                     error.message ||
                     String(error)
@@ -1164,7 +1507,7 @@ app.get(
 );
 
 /* =========================================================
-   DEPLOYED USERS
+   DEPLOYED LIST
 ========================================================= */
 
 app.get(
@@ -1174,31 +1517,48 @@ app.get(
             const users =
                 await loadDeployed();
 
-            /*
-             * Never expose sessionId publicly.
-             */
             const safeUsers =
-                users.map(user => {
-                    const copy = {
-                        ...user
-                    };
+                users.map(
+                    user => {
+                        const copy =
+                            {
+                                ...user
+                            };
 
-                    delete copy.sessionId;
+                        /*
+                         * Never expose auth
+                         * credentials or codes.
+                         */
+                        delete copy.sessionId;
 
-                    return copy;
-                });
+                        delete copy
+                            .deploymentCode;
+
+                        delete copy
+                            .authFolder;
+
+                        return copy;
+                    }
+                );
 
             res.json({
-                success: true,
+                success:
+                    true,
+
                 count:
                     safeUsers.length,
+
                 users:
                     safeUsers
             });
 
         } catch (error) {
-            res.status(500).json({
-                success: false,
+            res.status(
+                500
+            ).json({
+                success:
+                    false,
+
                 error:
                     error.message ||
                     String(error)
@@ -1219,14 +1579,20 @@ app.get(
                 await loadDeployed();
 
             res.json({
-                success: true,
+                success:
+                    true,
+
                 total:
                     users.length
             });
 
         } catch (error) {
-            res.status(500).json({
-                success: false,
+            res.status(
+                500
+            ).json({
+                success:
+                    false,
+
                 error:
                     error.message ||
                     String(error)
@@ -1249,29 +1615,45 @@ app.get(
             const connected =
                 users.filter(
                     user =>
-                        user.connected === true
+                        user.connected ===
+                        true
                 ).length;
 
             const sent =
                 users.filter(
                     user =>
-                        user.sent === true
+                        user.sent ===
+                        true
+                ).length;
+
+            const deployed =
+                users.filter(
+                    user =>
+                        user.status ===
+                        "deployed"
                 ).length;
 
             res.json({
-                success: true,
+                success:
+                    true,
 
                 total:
                     users.length,
 
                 connected,
 
-                sent
+                sent,
+
+                deployed
             });
 
         } catch (error) {
-            res.status(500).json({
-                success: false,
+            res.status(
+                500
+            ).json({
+                success:
+                    false,
+
                 error:
                     error.message ||
                     String(error)
@@ -1303,8 +1685,12 @@ app.get(
             );
         }
 
-        res.status(404).json({
-            success: false,
+        res.status(
+            404
+        ).json({
+            success:
+                false,
+
             error:
                 "Bot image not found"
         });
@@ -1317,10 +1703,15 @@ app.get(
 
 app.use(
     (req, res) => {
-        res.status(404).json({
-            success: false,
+        res.status(
+            404
+        ).json({
+            success:
+                false,
+
             error:
                 "Route not found",
+
             path:
                 req.path
         });
@@ -1328,22 +1719,33 @@ app.use(
 );
 
 /* =========================================================
-   GLOBAL ERROR HANDLER
+   ERROR HANDLER
 ========================================================= */
 
 app.use(
-    (err, req, res, next) => {
+    (
+        err,
+        req,
+        res,
+        next
+    ) => {
         console.error(
             "[EXPRESS ERROR]",
             err
         );
 
-        if (res.headersSent) {
+        if (
+            res.headersSent
+        ) {
             return next(err);
         }
 
-        res.status(500).json({
-            success: false,
+        res.status(
+            500
+        ).json({
+            success:
+                false,
+
             error:
                 err.message ||
                 "Internal server error"
@@ -1399,7 +1801,9 @@ async function startServer() {
             error
         );
 
-        process.exit(1);
+        process.exit(
+            1
+        );
     }
 }
 
@@ -1409,7 +1813,9 @@ startServer();
    GRACEFUL SHUTDOWN
 ========================================================= */
 
-async function shutdown(signal) {
+async function shutdown(
+    signal
+) {
     console.log(
         `[SERVER] ${signal} received. Shutting down...`
     );
@@ -1445,15 +1851,19 @@ async function shutdown(signal) {
 
     sockets.clear();
 
-    process.exit(0);
+    process.exit(
+        0
+    );
 }
 
 process.on(
     "SIGINT",
-    () => shutdown("SIGINT")
+    () =>
+        shutdown("SIGINT")
 );
 
 process.on(
     "SIGTERM",
-    () => shutdown("SIGTERM")
+    () =>
+        shutdown("SIGTERM")
 );
