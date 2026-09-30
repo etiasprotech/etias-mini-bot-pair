@@ -8,6 +8,7 @@ const fs = require("fs");
 const fsp = fs.promises;
 const pino = require("pino");
 const QRCode = require("qrcode");
+const crypto = require("crypto");
 
 const {
     default: makeWASocket,
@@ -29,7 +30,6 @@ const {
 
 const {
     generateAndSendSession,
-    verifyDeploymentCode,
     getDeploymentCodeStatus,
     deleteDeploymentCode
 } = require("./session");
@@ -53,6 +53,26 @@ const MEDIA_DIR =
 const TEMP_AUTH_DIR =
     path.join(ROOT, "temp_auth");
 
+const BOT_NAME =
+    process.env.BOT_NAME ||
+    "ETIAS-MINI-BOT";
+
+/*
+ * Shared secret used by the bot deployment
+ * server when requesting authentication files.
+ *
+ * Set the SAME value on both Render services:
+ *
+ * SESSION_TRANSFER_SECRET=some-long-random-secret
+ */
+
+const SESSION_TRANSFER_SECRET =
+    process.env.SESSION_TRANSFER_SECRET ||
+    "";
+
+const SESSION_ID_REGEX =
+    /^ETIAS-MINI-BOT~\d{8}$/i;
+
 const logger = pino({
     level:
         process.env.LOG_LEVEL ||
@@ -60,31 +80,42 @@ const logger = pino({
 });
 
 const sockets = new Map();
-const reconnecting = new Set();
+
+const reconnecting =
+    new Set();
 
 /* =========================================================
    DIRECTORIES
 ========================================================= */
 
 async function ensureDirectories() {
+
     await fsp.mkdir(
         AUTH_DIR,
-        { recursive: true }
+        {
+            recursive: true
+        }
     );
 
     await fsp.mkdir(
         DATA_DIR,
-        { recursive: true }
+        {
+            recursive: true
+        }
     );
 
     await fsp.mkdir(
         MEDIA_DIR,
-        { recursive: true }
+        {
+            recursive: true
+        }
     );
 
     await fsp.mkdir(
         TEMP_AUTH_DIR,
-        { recursive: true }
+        {
+            recursive: true
+        }
     );
 }
 
@@ -93,42 +124,157 @@ async function ensureDirectories() {
 ========================================================= */
 
 function sleep(ms) {
+
     return new Promise(
         resolve =>
-            setTimeout(resolve, ms)
+            setTimeout(
+                resolve,
+                ms
+            )
     );
 }
 
 function cleanNumber(number) {
+
     return String(number || "")
         .replace(/\D/g, "");
 }
 
 function normalizeJid(jid) {
+
     if (!jid) {
         return null;
     }
 
     return String(jid)
         .trim()
-        .replace(/:\d+(?=@)/, "");
+        .replace(
+            /:\d+(?=@)/,
+            ""
+        );
 }
+
+function normalizeSessionId(value) {
+
+    return String(value || "")
+        .trim()
+        .replace(
+            /^\[\s*/,
+            ""
+        )
+        .replace(
+            /\s*\]$/,
+            ""
+        );
+}
+
+function isValidSessionId(sessionId) {
+
+    return SESSION_ID_REGEX.test(
+        sessionId
+    );
+}
+
+/* =========================================================
+   SESSION ID
+========================================================= */
+
+function generateSessionId() {
+
+    const number =
+        crypto
+            .randomInt(
+                0,
+                100000000
+            )
+            .toString()
+            .padStart(
+                8,
+                "0"
+            );
+
+    return `${BOT_NAME}~${number}`;
+}
+
+/*
+ * Keep the session ID prefix fixed even if
+ * BOT_NAME is changed accidentally.
+ */
+
+function generateEtiasSessionId() {
+
+    const number =
+        crypto
+            .randomInt(
+                0,
+                100000000
+            )
+            .toString()
+            .padStart(
+                8,
+                "0"
+            );
+
+    return `ETIAS-MINI-BOT~${number}`;
+}
+
+/* =========================================================
+   AUTH FOLDER
+========================================================= */
+
+function getSessionAuthFolder(
+    sessionId
+) {
+
+    const clean =
+        normalizeSessionId(
+            sessionId
+        );
+
+    if (
+        !isValidSessionId(
+            clean
+        )
+    ) {
+        throw new Error(
+            "Invalid Session ID"
+        );
+    }
+
+    const suffix =
+        clean
+            .split("~")[1];
+
+    return path.join(
+        AUTH_DIR,
+        `ETIAS-MINI-BOT_${suffix}`
+    );
+}
+
+/* =========================================================
+   DISCONNECT
+========================================================= */
 
 function getDisconnectCode(
     lastDisconnect
 ) {
+
     return (
         lastDisconnect?.error
             ?.output?.statusCode ||
+
         lastDisconnect?.error
             ?.data?.statusCode ||
+
         lastDisconnect?.error
             ?.statusCode ||
+
         null
     );
 }
 
 function isLoggedOut(code) {
+
     return (
         code ===
         DisconnectReason.loggedOut
@@ -136,6 +282,7 @@ function isLoggedOut(code) {
 }
 
 function isBadSession(code) {
+
     return (
         code ===
         DisconnectReason.badSession
@@ -143,10 +290,33 @@ function isBadSession(code) {
 }
 
 function isRestartRequired(code) {
+
     return (
         code ===
         DisconnectReason.restartRequired
     );
+}
+
+/* =========================================================
+   FIND SESSION
+========================================================= */
+
+function findPairingBySessionId(
+    sessionId
+) {
+
+    const clean =
+        normalizeSessionId(
+            sessionId
+        );
+
+    return getAllPairings()
+        .find(
+            item =>
+                normalizeSessionId(
+                    item.sessionId
+                ) === clean
+        );
 }
 
 /* =========================================================
@@ -157,28 +327,45 @@ async function saveSuccessfulDeployment(
     pairingId,
     number,
     jid,
-    authFolder
+    authFolder,
+    sessionId
 ) {
+
     const now =
         new Date().toISOString();
 
     updatePairing(
         pairingId,
         {
-            status: "deployed",
-            connected: true,
-            sent: true,
+
+            status:
+                "deployed",
+
+            connected:
+                true,
+
+            sent:
+                true,
+
             jid,
+
             authFolder,
-            deployedAt: now
+
+            sessionId,
+
+            deployedAt:
+                now
         }
     );
 
     await addDeployedUser({
+
         id:
             generateUserId(),
 
         pairingId,
+
+        sessionId,
 
         number,
 
@@ -210,39 +397,111 @@ async function saveSuccessfulDeployment(
 async function startPairing(
     number,
     pairingId,
-    existingAuthFolder = null
+    existingAuthFolder = null,
+    existingSessionId = null
 ) {
+
     const clean =
         cleanNumber(number);
 
     if (!clean) {
+
         throw new Error(
             "Invalid phone number"
         );
     }
 
+    /*
+     * Create the REAL session ID before
+     * creating the authentication folder.
+     */
+
+    const sessionId =
+        existingSessionId ||
+        generateEtiasSessionId();
+
+    if (
+        !isValidSessionId(
+            sessionId
+        )
+    ) {
+
+        throw new Error(
+            "Generated invalid Session ID"
+        );
+    }
+
+    /*
+     * Authentication folder is now tied
+     * directly to the Session ID.
+     *
+     * Example:
+     *
+     * auth/
+     *   ETIAS-MINI-BOT_43340319/
+     */
+
     let authFolder =
         existingAuthFolder;
 
     if (!authFolder) {
+
         authFolder =
-            path.join(
-                AUTH_DIR,
-                `ETIAS_${clean}_${Date.now()}_${Math.random()
-                    .toString(16)
-                    .slice(2, 10)}`
+            getSessionAuthFolder(
+                sessionId
             );
     }
 
     await fsp.mkdir(
         authFolder,
         {
-            recursive: true
+            recursive:
+                true
         }
     );
 
     console.log(
+        "========================================"
+    );
+
+    console.log(
+        `[PAIR] Session ID: ${sessionId}`
+    );
+
+    console.log(
+        `[PAIR] Phone: +${clean}`
+    );
+
+    console.log(
         `[PAIR] Auth folder: ${authFolder}`
+    );
+
+    console.log(
+        "========================================"
+    );
+
+    /*
+     * Store the Session ID immediately.
+     */
+
+    updatePairing(
+        pairingId,
+        {
+
+            sessionId,
+
+            number:
+                clean,
+
+            authFolder,
+
+            status:
+                "starting",
+
+            connected:
+                false
+
+        }
     );
 
     const {
@@ -255,7 +514,9 @@ async function startPairing(
 
     const sock =
         makeWASocket({
+
             auth: {
+
                 creds:
                     state.creds,
 
@@ -264,6 +525,7 @@ async function startPairing(
                         state.keys,
                         logger
                     )
+
             },
 
             logger,
@@ -290,6 +552,7 @@ async function startPairing(
 
             keepAliveIntervalMs:
                 25000
+
         });
 
     sockets.set(
@@ -300,6 +563,9 @@ async function startPairing(
     updatePairing(
         pairingId,
         {
+
+            sessionId,
+
             status:
                 "connecting",
 
@@ -307,6 +573,7 @@ async function startPairing(
                 false,
 
             authFolder
+
         }
     );
 
@@ -322,29 +589,36 @@ async function startPairing(
     sock.ev.on(
         "connection.update",
         async update => {
+
             const {
                 connection,
                 lastDisconnect,
                 qr
             } = update;
 
-            /* =============================================
+            /* =================================================
                QR
-            ============================================= */
+            ================================================= */
 
             if (qr) {
+
                 updatePairing(
                     pairingId,
                     {
+
+                        sessionId,
+
                         status:
                             "qr",
 
                         connected:
                             false
+
                     }
                 );
 
                 try {
+
                     const qrData =
                         await QRCode.toDataURL(
                             qr
@@ -353,26 +627,32 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
+
                             qrImage:
                                 qrData
+
                         }
                     );
+
                 } catch (error) {
+
                     console.error(
                         "[QR] Image error:",
                         error.message
                     );
+
                 }
             }
 
-            /* =============================================
+            /* =================================================
                CONNECTING
-            ============================================= */
+            ================================================= */
 
             if (
                 connection ===
                 "connecting"
             ) {
+
                 console.log(
                     `[PAIR] Connecting: ${pairingId}`
                 );
@@ -380,23 +660,28 @@ async function startPairing(
                 updatePairing(
                     pairingId,
                     {
+
+                        sessionId,
+
                         status:
                             "connecting",
 
                         connected:
                             false
+
                     }
                 );
             }
 
-            /* =============================================
+            /* =================================================
                OPEN
-            ============================================= */
+            ================================================= */
 
             if (
                 connection ===
                 "open"
             ) {
+
                 console.log(
                     "========================================"
                 );
@@ -410,6 +695,10 @@ async function startPairing(
                 );
 
                 console.log(
+                    `SESSION ID: ${sessionId}`
+                );
+
+                console.log(
                     `JID: ${
                         sock.user?.id ||
                         "unknown"
@@ -417,23 +706,37 @@ async function startPairing(
                 );
 
                 console.log(
+                    `AUTH: ${authFolder}`
+                );
+
+                console.log(
                     "========================================"
                 );
 
                 try {
+
                     /*
-                     * Allow credential writes to finish.
+                     * Make sure the latest credentials
+                     * are written to disk.
                      */
-                    await sleep(2500);
+
+                    await sleep(
+                        2500
+                    );
 
                     await saveCreds();
 
-                    await sleep(1500);
+                    await sleep(
+                        1000
+                    );
 
                     const authenticatedJid =
                         sock.user?.id;
 
-                    if (!authenticatedJid) {
+                    if (
+                        !authenticatedJid
+                    ) {
+
                         throw new Error(
                             "Authenticated WhatsApp JID unavailable"
                         );
@@ -447,8 +750,11 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
+
+                            sessionId,
+
                             status:
-                                "generating_code",
+                                "generating_session",
 
                             connected:
                                 true,
@@ -457,47 +763,73 @@ async function startPairing(
                                 authenticatedJid,
 
                             authFolder
+
                         }
                     );
 
                     console.log(
-                        "[DEPLOYMENT] Generating 8-digit code..."
+                        `[SESSION] Sending ${sessionId} to WhatsApp...`
                     );
 
                     /*
-                     * Generates the one-time deployment
-                     * code and sends it directly to WhatsApp.
+                     * session.js now sends:
+                     *
+                     * ETIAS-MINI-BOT~12345678
+                     *
+                     * instead of the old 8-digit
+                     * deployment code.
                      */
+
                     const result =
                         await generateAndSendSession(
+
                             sock,
+
                             authFolder,
+
                             authenticatedJid,
+
                             pairingId,
+
                             normalizedJid
+
                         );
 
-                    const deploymentCode =
-                        result.deploymentCode ||
-                        result.sessionId;
+                    if (
+                        !result ||
+                        !result.sessionId ||
+                        !isValidSessionId(
+                            result.sessionId
+                        )
+                    ) {
 
-                    if (!deploymentCode) {
                         throw new Error(
-                            "Deployment code was not generated"
+                            "Invalid Session ID returned by session.js"
                         );
                     }
 
-                    console.log(
-                        "[DEPLOYMENT] Code sent successfully"
-                    );
-
                     /*
-                     * Do not put the actual code into
-                     * the public pairing status.
+                     * Make absolutely sure the ID
+                     * generated by session.js matches
+                     * the pairing record.
                      */
+
+                    if (
+                        result.sessionId !==
+                        sessionId
+                    ) {
+
+                        throw new Error(
+                            "Session ID mismatch between pairing server and session.js"
+                        );
+                    }
+
                     updatePairing(
                         pairingId,
                         {
+
+                            sessionId,
+
                             status:
                                 "awaiting_deployment",
 
@@ -514,6 +846,7 @@ async function startPairing(
 
                             codeExpiresAt:
                                 result.expiresAt
+
                         }
                     );
 
@@ -522,11 +855,11 @@ async function startPairing(
                     );
 
                     console.log(
-                        "📲 DEPLOYMENT CODE SENT"
+                        "📲 SESSION ID SENT TO WHATSAPP"
                     );
 
                     console.log(
-                        `PAIR ID: ${pairingId}`
+                        `SESSION ID: ${sessionId}`
                     );
 
                     console.log(
@@ -534,7 +867,7 @@ async function startPairing(
                     );
 
                     console.log(
-                        "Waiting for code on deployment page..."
+                        "Waiting for deployment..."
                     );
 
                     console.log(
@@ -542,14 +875,16 @@ async function startPairing(
                     );
 
                 } catch (error) {
+
                     console.error(
-                        "[DEPLOYMENT ERROR]",
+                        "[SESSION ERROR]",
                         error
                     );
 
                     updatePairing(
                         pairingId,
                         {
+
                             status:
                                 "deployment_error",
 
@@ -559,22 +894,26 @@ async function startPairing(
                             sent:
                                 false,
 
+                            sessionId,
+
                             error:
                                 error.message ||
                                 String(error)
+
                         }
                     );
                 }
             }
 
-            /* =============================================
+            /* =================================================
                CLOSE
-            ============================================= */
+            ================================================= */
 
             if (
                 connection ===
                 "close"
             ) {
+
                 const code =
                     getDisconnectCode(
                         lastDisconnect
@@ -588,13 +927,10 @@ async function startPairing(
                     pairingId
                 );
 
-                /* =========================================
-                   LOGGED OUT
-                ========================================= */
-
                 if (
                     isLoggedOut(code)
                 ) {
+
                     console.log(
                         "[PAIR] ❌ WhatsApp logged out"
                     );
@@ -602,24 +938,25 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
+
+                            sessionId,
+
                             status:
                                 "logged_out",
 
                             connected:
                                 false
+
                         }
                     );
 
                     return;
                 }
 
-                /* =========================================
-                   BAD SESSION
-                ========================================= */
-
                 if (
                     isBadSession(code)
                 ) {
+
                     console.log(
                         "[PAIR] ❌ Bad session"
                     );
@@ -627,26 +964,27 @@ async function startPairing(
                     updatePairing(
                         pairingId,
                         {
+
+                            sessionId,
+
                             status:
                                 "bad_session",
 
                             connected:
                                 false
+
                         }
                     );
 
                     return;
                 }
 
-                /* =========================================
-                   PREVENT DUPLICATE RECONNECT
-                ========================================= */
-
                 if (
                     reconnecting.has(
                         pairingId
                     )
                 ) {
+
                     return;
                 }
 
@@ -657,11 +995,15 @@ async function startPairing(
                 updatePairing(
                     pairingId,
                     {
+
+                        sessionId,
+
                         status:
                             "reconnecting",
 
                         connected:
                             false
+
                     }
                 );
 
@@ -671,18 +1013,27 @@ async function startPairing(
 
                 setTimeout(
                     async () => {
+
                         try {
+
                             reconnecting.delete(
                                 pairingId
                             );
 
                             await startPairing(
+
                                 clean,
+
                                 pairingId,
-                                authFolder
+
+                                authFolder,
+
+                                sessionId
+
                             );
 
                         } catch (error) {
+
                             console.error(
                                 "[PAIR] Reconnect failed:",
                                 error.message
@@ -695,6 +1046,9 @@ async function startPairing(
                             updatePairing(
                                 pairingId,
                                 {
+
+                                    sessionId,
+
                                     status:
                                         "error",
 
@@ -703,9 +1057,11 @@ async function startPairing(
 
                                     error:
                                         error.message
+
                                 }
                             );
                         }
+
                     },
 
                     isRestartRequired(
@@ -719,24 +1075,29 @@ async function startPairing(
     );
 
     /* =====================================================
-       REQUEST PAIRING CODE
+       WHATSAPP PAIRING CODE
     ===================================================== */
 
     if (
         !state.creds.registered
     ) {
+
         try {
+
             console.log(
                 "[PAIR] Waiting before requesting pairing code..."
             );
 
-            await sleep(5000);
+            await sleep(
+                5000
+            );
 
             if (
                 sockets.get(
                     pairingId
                 ) !== sock
             ) {
+
                 throw new Error(
                     "Pairing socket is no longer active"
                 );
@@ -753,9 +1114,11 @@ async function startPairing(
                 attempt <= 3;
                 attempt++
             ) {
+
                 try {
+
                     console.log(
-                        `[PAIR] Requesting pairing code ${attempt}/3...`
+                        `[PAIR] Requesting WhatsApp pairing code ${attempt}/3...`
                     );
 
                     pairingCode =
@@ -766,10 +1129,12 @@ async function startPairing(
                     if (
                         pairingCode
                     ) {
+
                         break;
                     }
 
                 } catch (error) {
+
                     lastError =
                         error;
 
@@ -781,6 +1146,7 @@ async function startPairing(
                     if (
                         attempt < 3
                     ) {
+
                         await sleep(
                             3000
                         );
@@ -788,7 +1154,10 @@ async function startPairing(
                 }
             }
 
-            if (!pairingCode) {
+            if (
+                !pairingCode
+            ) {
+
                 throw (
                     lastError ||
                     new Error(
@@ -798,23 +1167,36 @@ async function startPairing(
             }
 
             console.log(
-                `[PAIR] Pairing code: ${pairingCode}`
+                `[PAIR] WhatsApp pairing code generated for ${clean}`
             );
+
+            /*
+             * This is the WhatsApp login code.
+             *
+             * It is NOT the Session ID.
+             */
 
             updatePairing(
                 pairingId,
                 {
+
+                    sessionId,
+
                     status:
                         "pairing_code",
 
                     pairingCode,
 
                     connected:
-                        false
+                        false,
+
+                    authFolder
+
                 }
             );
 
         } catch (error) {
+
             console.error(
                 "[PAIRING CODE ERROR]",
                 error
@@ -823,6 +1205,9 @@ async function startPairing(
             updatePairing(
                 pairingId,
                 {
+
+                    sessionId,
+
                     status:
                         "error",
 
@@ -832,6 +1217,7 @@ async function startPairing(
                     error:
                         error.message ||
                         String(error)
+
                 }
             );
         }
@@ -862,7 +1248,9 @@ app.use(
 );
 
 app.use(
-    express.static(ROOT)
+    express.static(
+        ROOT
+    )
 );
 
 /* =========================================================
@@ -872,6 +1260,7 @@ app.use(
 app.get(
     "/",
     (req, res) => {
+
         res.sendFile(
             path.join(
                 ROOT,
@@ -882,12 +1271,13 @@ app.get(
 );
 
 /* =========================================================
-   PAIR PAGE
+   PAIR
 ========================================================= */
 
 app.get(
     "/pair",
     (req, res) => {
+
         res.sendFile(
             path.join(
                 ROOT,
@@ -898,12 +1288,13 @@ app.get(
 );
 
 /* =========================================================
-   QR PAGE
+   QR
 ========================================================= */
 
 app.get(
     "/qr",
     (req, res) => {
+
         res.sendFile(
             path.join(
                 ROOT,
@@ -920,7 +1311,9 @@ app.get(
 app.get(
     "/ping",
     (req, res) => {
+
         res.json({
+
             status:
                 "ok",
 
@@ -929,6 +1322,7 @@ app.get(
 
             time:
                 new Date().toISOString()
+
         });
     }
 );
@@ -940,7 +1334,9 @@ app.get(
 app.get(
     "/health",
     (req, res) => {
+
         res.json({
+
             status:
                 "online",
 
@@ -953,6 +1349,7 @@ app.get(
 
             uptime:
                 process.uptime()
+
         });
     }
 );
@@ -964,21 +1361,26 @@ app.get(
 app.get(
     "/code",
     async (req, res) => {
+
         try {
+
             const number =
                 cleanNumber(
                     req.query.number
                 );
 
             if (!number) {
+
                 return res.status(
                     400
                 ).json({
+
                     success:
                         false,
 
                     error:
                         "Phone number is required"
+
                 });
             }
 
@@ -986,28 +1388,37 @@ app.get(
                 getAllPairings()
                     .find(
                         item =>
+
                             item.number ===
                                 number &&
+
                             [
                                 "starting",
                                 "connecting",
                                 "pairing_code",
                                 "qr",
                                 "reconnecting",
-                                "generating_code",
-                                "awaiting_deployment"
+                                "generating_session",
+                                "awaiting_deployment",
+                                "deployed"
                             ].includes(
                                 item.status
                             )
                     );
 
             if (existing) {
+
                 return res.json({
+
                     success:
                         true,
 
                     pairingId:
                         existing.id,
+
+                    sessionId:
+                        existing.sessionId ||
+                        null,
 
                     number,
 
@@ -1016,6 +1427,7 @@ app.get(
 
                     message:
                         "Pairing session already exists."
+
                 });
             }
 
@@ -1024,11 +1436,39 @@ app.get(
                     number
                 );
 
+            /*
+             * Generate the real Session ID now.
+             */
+
+            const sessionId =
+                generateEtiasSessionId();
+
+            updatePairing(
+                pairing.id,
+                {
+
+                    sessionId,
+
+                    number,
+
+                    status:
+                        "starting"
+
+                }
+            );
+
             startPairing(
                 number,
-                pairing.id
+
+                pairing.id,
+
+                null,
+
+                sessionId
+
             ).catch(
                 error => {
+
                     console.error(
                         "[PAIR] Startup error:",
                         error
@@ -1037,12 +1477,16 @@ app.get(
                     updatePairing(
                         pairing.id,
                         {
+
+                            sessionId,
+
                             status:
                                 "error",
 
                             error:
                                 error.message ||
                                 String(error)
+
                         }
                     );
                 }
@@ -1058,11 +1502,14 @@ app.get(
                 );
 
             return res.json({
+
                 success:
                     true,
 
                 pairingId:
                     pairing.id,
+
+                sessionId,
 
                 number,
 
@@ -1071,19 +1518,23 @@ app.get(
                     "starting",
 
                 message:
-                    "Pairing started. Wait for the deployment code."
+                    "Pairing started. Use the WhatsApp pairing code. After successful pairing, your Session ID will be sent to WhatsApp."
+
             });
 
         } catch (error) {
+
             return res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1096,42 +1547,49 @@ app.get(
 app.get(
     "/status/:id",
     (req, res) => {
+
         const pairing =
             getPairing(
                 req.params.id
             );
 
         if (!pairing) {
+
             return res.status(
                 404
             ).json({
+
                 success:
                     false,
 
                 error:
                     "Pairing ID not found"
+
             });
         }
 
-        /*
-         * Never return a deployment code
-         * from this endpoint.
-         */
         const safePairing = {
             ...pairing
         };
 
+        /*
+         * Never expose the WhatsApp pairing
+         * login code through status.
+         */
+
+        delete safePairing
+            .pairingCode;
+
         delete safePairing
             .deploymentCode;
 
-        delete safePairing
-            .sessionId;
-
         res.json({
+
             success:
                 true,
 
             ...safePairing
+
         });
     }
 );
@@ -1143,24 +1601,29 @@ app.get(
 app.get(
     "/check/:id",
     (req, res) => {
+
         const pairing =
             getPairing(
                 req.params.id
             );
 
         if (!pairing) {
+
             return res.status(
                 404
             ).json({
+
                 success:
                     false,
 
                 error:
                     "Pairing ID not found"
+
             });
         }
 
         res.json({
+
             success:
                 true,
 
@@ -1169,6 +1632,10 @@ app.get(
 
             number:
                 pairing.number,
+
+            sessionId:
+                pairing.sessionId ||
+                null,
 
             status:
                 pairing.status,
@@ -1190,40 +1657,464 @@ app.get(
             error:
                 pairing.error ||
                 null
+
         });
     }
 );
 
 /* =========================================================
-   DEPLOYMENT CODE STATUS
+   SESSION LOOKUP
+========================================================= */
+
+app.get(
+    "/session/:sessionId",
+    (req, res) => {
+
+        try {
+
+            const sessionId =
+                normalizeSessionId(
+                    req.params.sessionId
+                );
+
+            if (
+                !isValidSessionId(
+                    sessionId
+                )
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Invalid Session ID"
+
+                });
+            }
+
+            const pairing =
+                findPairingBySessionId(
+                    sessionId
+                );
+
+            if (!pairing) {
+
+                return res.status(
+                    404
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Session ID not found"
+
+                });
+            }
+
+            const authFolder =
+                pairing.authFolder;
+
+            const authExists =
+                authFolder &&
+                fs.existsSync(
+                    path.join(
+                        authFolder,
+                        "creds.json"
+                    )
+                );
+
+            return res.json({
+
+                success:
+                    true,
+
+                sessionId,
+
+                number:
+                    pairing.number ||
+                    null,
+
+                jid:
+                    pairing.jid ||
+                    null,
+
+                pairingId:
+                    pairing.id,
+
+                status:
+                    pairing.status,
+
+                connected:
+                    pairing.connected ===
+                    true,
+
+                authenticated:
+                    authExists,
+
+                authAvailable:
+                    authExists
+
+            });
+
+        } catch (error) {
+
+            res.status(
+                500
+            ).json({
+
+                success:
+                    false,
+
+                error:
+                    error.message
+
+            });
+        }
+    }
+);
+
+/* =========================================================
+   AUTH EXPORT
+========================================================= */
+
+/*
+ * The bot deployment server uses this endpoint
+ * to obtain the authenticated Baileys state.
+ *
+ * It requires:
+ *
+ * x-session-transfer-secret
+ *
+ * with the same SESSION_TRANSFER_SECRET on
+ * both services.
+ */
+
+app.get(
+    "/session/:sessionId/auth",
+    async (req, res) => {
+
+        try {
+
+            if (
+                !SESSION_TRANSFER_SECRET
+            ) {
+
+                return res.status(
+                    503
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "SESSION_TRANSFER_SECRET is not configured"
+
+                });
+            }
+
+            const suppliedSecret =
+                String(
+                    req.headers[
+                        "x-session-transfer-secret"
+                    ] || ""
+                );
+
+            if (
+                suppliedSecret !==
+                SESSION_TRANSFER_SECRET
+            ) {
+
+                return res.status(
+                    401
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Unauthorized"
+
+                });
+            }
+
+            const sessionId =
+                normalizeSessionId(
+                    req.params.sessionId
+                );
+
+            if (
+                !isValidSessionId(
+                    sessionId
+                )
+            ) {
+
+                return res.status(
+                    400
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Invalid Session ID"
+
+                });
+            }
+
+            const pairing =
+                findPairingBySessionId(
+                    sessionId
+                );
+
+            if (!pairing) {
+
+                return res.status(
+                    404
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Session ID not found"
+
+                });
+            }
+
+            if (
+                pairing.connected !==
+                true
+            ) {
+
+                return res.status(
+                    409
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "WhatsApp session is not connected"
+
+                });
+            }
+
+            const authFolder =
+                pairing.authFolder;
+
+            if (
+                !authFolder ||
+                !fs.existsSync(
+                    authFolder
+                )
+            ) {
+
+                return res.status(
+                    404
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Authentication folder not found"
+
+                });
+            }
+
+            /*
+             * Read all auth files recursively.
+             */
+
+            async function readAuthFiles(
+                directory,
+                relative = ""
+            ) {
+
+                const entries =
+                    await fsp.readdir(
+                        directory,
+                        {
+                            withFileTypes:
+                                true
+                        }
+                    );
+
+                const output = [];
+
+                for (
+                    const entry of entries
+                ) {
+
+                    const fullPath =
+                        path.join(
+                            directory,
+                            entry.name
+                        );
+
+                    const relativePath =
+                        path.join(
+                            relative,
+                            entry.name
+                        );
+
+                    if (
+                        entry.isDirectory()
+                    ) {
+
+                        const nested =
+                            await readAuthFiles(
+                                fullPath,
+                                relativePath
+                            );
+
+                        output.push(
+                            ...nested
+                        );
+
+                    } else {
+
+                        const buffer =
+                            await fsp.readFile(
+                                fullPath
+                            );
+
+                        output.push({
+
+                            path:
+                                relativePath
+                                    .replace(
+                                        /\\/g,
+                                        "/"
+                                    ),
+
+                            data:
+                                buffer.toString(
+                                    "base64"
+                                )
+
+                        });
+                    }
+                }
+
+                return output;
+            }
+
+            const files =
+                await readAuthFiles(
+                    authFolder
+                );
+
+            /*
+             * Make sure creds.json exists.
+             */
+
+            const hasCreds =
+                files.some(
+                    file =>
+                        file.path ===
+                        "creds.json"
+                );
+
+            if (!hasCreds) {
+
+                return res.status(
+                    409
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "creds.json is not available yet"
+
+                });
+            }
+
+            return res.json({
+
+                success:
+                    true,
+
+                sessionId,
+
+                number:
+                    pairing.number,
+
+                jid:
+                    pairing.jid,
+
+                files
+
+            });
+
+        } catch (error) {
+
+            console.error(
+                "[AUTH EXPORT]",
+                error
+            );
+
+            res.status(
+                500
+            ).json({
+
+                success:
+                    false,
+
+                error:
+                    error.message ||
+                    String(error)
+
+            });
+        }
+    }
+);
+
+/* =========================================================
+   DEPLOYMENT STATUS
 ========================================================= */
 
 app.get(
     "/deployment-status/:id",
     (req, res) => {
+
         const status =
             getDeploymentCodeStatus(
                 req.params.id
             );
 
         if (!status) {
+
             return res.status(
                 404
             ).json({
+
                 success:
                     false,
 
                 error:
-                    "Deployment code not found or expired"
+                    "Deployment session not found or expired"
+
             });
         }
 
         res.json({
+
             success:
                 true,
 
             pairingId:
                 status.pairingId,
+
+            sessionId:
+                status.sessionId ||
+                null,
 
             jid:
                 status.jid,
@@ -1233,6 +2124,7 @@ app.get(
 
             used:
                 status.used
+
         });
     }
 );
@@ -1241,183 +2133,216 @@ app.get(
    DEPLOY
 ========================================================= */
 
+/*
+ * This endpoint now accepts:
+ *
+ * {
+ *   sessionId:
+ *     "ETIAS-MINI-BOT~43340319"
+ * }
+ *
+ * instead of requiring the old 8-digit
+ * deployment code.
+ */
+
 app.post(
     "/deploy",
     async (req, res) => {
+
         try {
-            const {
-                pairingId,
-                code
-            } = req.body;
 
-            if (!pairingId) {
+            const sessionId =
+                normalizeSessionId(
+                    req.body.sessionId
+                );
+
+            if (
+                !isValidSessionId(
+                    sessionId
+                )
+            ) {
+
                 return res.status(
                     400
                 ).json({
+
                     success:
                         false,
 
                     error:
-                        "pairingId is required"
-                });
-            }
+                        "Valid Session ID is required. Example: ETIAS-MINI-BOT~43340319"
 
-            if (!code) {
-                return res.status(
-                    400
-                ).json({
-                    success:
-                        false,
-
-                    error:
-                        "8-digit deployment code is required"
                 });
             }
 
             const pairing =
-                getPairing(
-                    pairingId
+                findPairingBySessionId(
+                    sessionId
                 );
 
             if (!pairing) {
+
                 return res.status(
                     404
                 ).json({
+
                     success:
                         false,
 
                     error:
-                        "Pairing ID not found"
+                        "This Session ID does not exist on the pairing server"
+
                 });
             }
-
-            /*
-             * Verify the one-time code.
-             */
-            const verification =
-                verifyDeploymentCode(
-                    pairingId,
-                    String(code)
-                        .trim()
-                );
 
             if (
-                !verification.success
+                pairing.connected !==
+                true
             ) {
-                return res.status(
-                    401
-                ).json({
-                    success:
-                        false,
 
-                    error:
-                        verification.error
-                });
-            }
-
-            /*
-             * Verify the original socket still exists.
-             */
-            const sock =
-                sockets.get(
-                    pairingId
-                );
-
-            if (!sock) {
-                return res.status(
-                    410
-                ).json({
-                    success:
-                        false,
-
-                    error:
-                        "WhatsApp connection is no longer active"
-                });
-            }
-
-            /*
-             * Make sure the pairing was actually
-             * connected before deployment.
-             */
-            if (
-                !pairing.connected
-            ) {
                 return res.status(
                     409
                 ).json({
+
                     success:
                         false,
 
                     error:
-                        "WhatsApp account is not connected"
+                        "The WhatsApp number belonging to this Session ID is not connected"
+
                 });
             }
 
+            if (
+                !pairing.authFolder
+            ) {
+
+                return res.status(
+                    409
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "Authentication folder is unavailable"
+
+                });
+            }
+
+            const credsPath =
+                path.join(
+                    pairing.authFolder,
+                    "creds.json"
+                );
+
+            if (
+                !fs.existsSync(
+                    credsPath
+                )
+            ) {
+
+                return res.status(
+                    409
+                ).json({
+
+                    success:
+                        false,
+
+                    error:
+                        "WhatsApp credentials are not ready"
+
+                });
+            }
+
+            console.log(
+                "========================================"
+            );
+
+            console.log(
+                "🎉 SESSION ID VERIFIED"
+            );
+
+            console.log(
+                `SESSION: ${sessionId}`
+            );
+
+            console.log(
+                `PHONE: +${pairing.number}`
+            );
+
+            console.log(
+                `JID: ${pairing.jid}`
+            );
+
+            console.log(
+                `AUTH: ${pairing.authFolder}`
+            );
+
+            console.log(
+                "========================================"
+            );
+
             /*
-             * Persist the deployment.
+             * Mark the pairing as deployed.
              */
+
             await saveSuccessfulDeployment(
-                pairingId,
+
+                pairing.id,
+
                 pairing.number,
-                verification.jid,
-                verification.authFolder
+
+                pairing.jid,
+
+                pairing.authFolder,
+
+                sessionId
+
             );
 
-            console.log(
-                "========================================"
-            );
+            return res.json({
 
-            console.log(
-                "🎉 DEPLOYMENT VERIFIED"
-            );
-
-            console.log(
-                `PAIR ID: ${pairingId}`
-            );
-
-            console.log(
-                `JID: ${verification.jid}`
-            );
-
-            console.log(
-                "AUTH STATE: STORED SERVER-SIDE"
-            );
-
-            console.log(
-                "========================================"
-            );
-
-            res.json({
                 success:
                     true,
 
                 message:
-                    "Deployment verified successfully.",
+                    "Session ID verified successfully",
 
-                pairingId,
+                sessionId,
+
+                number:
+                    pairing.number,
 
                 jid:
-                    verification.jid,
+                    pairing.jid,
+
+                authAvailable:
+                    true,
 
                 status:
                     "deployed"
+
             });
 
         } catch (error) {
+
             console.error(
                 "[DEPLOY ERROR]",
                 error
             );
 
-            res.status(
+            return res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1430,19 +2355,24 @@ app.post(
 app.get(
     "/qr-image",
     async (req, res) => {
+
         try {
+
             const id =
                 req.query.id;
 
             if (!id) {
+
                 return res.status(
                     400
                 ).json({
+
                     success:
                         false,
 
                     error:
                         "Pairing ID required"
+
                 });
             }
 
@@ -1450,26 +2380,34 @@ app.get(
                 getPairing(id);
 
             if (!pairing) {
+
                 return res.status(
                     404
                 ).json({
+
                     success:
                         false,
 
                     error:
                         "Pairing ID not found"
+
                 });
             }
 
-            if (!pairing.qrImage) {
+            if (
+                !pairing.qrImage
+            ) {
+
                 return res.status(
                     404
                 ).json({
+
                     success:
                         false,
 
                     error:
                         "QR code not available"
+
                 });
             }
 
@@ -1492,15 +2430,18 @@ app.get(
             );
 
         } catch (error) {
+
             res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1513,23 +2454,19 @@ app.get(
 app.get(
     "/deployed-list",
     async (req, res) => {
+
         try {
+
             const users =
                 await loadDeployed();
 
             const safeUsers =
                 users.map(
                     user => {
-                        const copy =
-                            {
-                                ...user
-                            };
 
-                        /*
-                         * Never expose auth
-                         * credentials or codes.
-                         */
-                        delete copy.sessionId;
+                        const copy = {
+                            ...user
+                        };
 
                         delete copy
                             .deploymentCode;
@@ -1537,11 +2474,16 @@ app.get(
                         delete copy
                             .authFolder;
 
+                        /*
+                         * Do not expose credentials.
+                         */
+
                         return copy;
                     }
                 );
 
             res.json({
+
                 success:
                     true,
 
@@ -1550,18 +2492,22 @@ app.get(
 
                 users:
                     safeUsers
+
             });
 
         } catch (error) {
+
             res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1574,28 +2520,35 @@ app.get(
 app.get(
     "/total-users",
     async (req, res) => {
+
         try {
+
             const users =
                 await loadDeployed();
 
             res.json({
+
                 success:
                     true,
 
                 total:
                     users.length
+
             });
 
         } catch (error) {
+
             res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1608,7 +2561,9 @@ app.get(
 app.get(
     "/deploy-stats",
     async (req, res) => {
+
         try {
+
             const users =
                 await loadDeployed();
 
@@ -1634,6 +2589,7 @@ app.get(
                 ).length;
 
             res.json({
+
                 success:
                     true,
 
@@ -1645,18 +2601,22 @@ app.get(
                 sent,
 
                 deployed
+
             });
 
         } catch (error) {
+
             res.status(
                 500
             ).json({
+
                 success:
                     false,
 
                 error:
                     error.message ||
                     String(error)
+
             });
         }
     }
@@ -1669,6 +2629,7 @@ app.get(
 app.get(
     "/bot-image",
     (req, res) => {
+
         const imagePath =
             path.join(
                 MEDIA_DIR,
@@ -1680,6 +2641,7 @@ app.get(
                 imagePath
             )
         ) {
+
             return res.sendFile(
                 imagePath
             );
@@ -1688,11 +2650,13 @@ app.get(
         res.status(
             404
         ).json({
+
             success:
                 false,
 
             error:
                 "Bot image not found"
+
         });
     }
 );
@@ -1703,9 +2667,11 @@ app.get(
 
 app.use(
     (req, res) => {
+
         res.status(
             404
         ).json({
+
             success:
                 false,
 
@@ -1714,6 +2680,7 @@ app.use(
 
             path:
                 req.path
+
         });
     }
 );
@@ -1729,6 +2696,7 @@ app.use(
         res,
         next
     ) => {
+
         console.error(
             "[EXPRESS ERROR]",
             err
@@ -1737,34 +2705,40 @@ app.use(
         if (
             res.headersSent
         ) {
+
             return next(err);
         }
 
         res.status(
             500
         ).json({
+
             success:
                 false,
 
             error:
                 err.message ||
                 "Internal server error"
+
         });
     }
 );
 
 /* =========================================================
-   START SERVER
+   START
 ========================================================= */
 
 async function startServer() {
+
     try {
+
         await ensureDirectories();
 
         app.listen(
             PORT,
             "0.0.0.0",
             () => {
+
                 console.log(
                     "========================================"
                 );
@@ -1790,12 +2764,22 @@ async function startServer() {
                 );
 
                 console.log(
+                    `🔐 AUTH TRANSFER: ${
+                        SESSION_TRANSFER_SECRET
+                            ? "ENABLED"
+                            : "DISABLED"
+                    }`
+                );
+
+                console.log(
                     "========================================"
                 );
+
             }
         );
 
     } catch (error) {
+
         console.error(
             "[SERVER] Failed to start:",
             error
@@ -1816,6 +2800,7 @@ startServer();
 async function shutdown(
     signal
 ) {
+
     console.log(
         `[SERVER] ${signal} received. Shutting down...`
     );
@@ -1826,7 +2811,9 @@ async function shutdown(
             sock
         ] of sockets.entries()
     ) {
+
         try {
+
             console.log(
                 `[SERVER] Closing socket: ${pairingId}`
             );
@@ -1836,12 +2823,14 @@ async function shutdown(
                 typeof sock.end ===
                     "function"
             ) {
+
                 sock.end(
                     undefined
                 );
             }
 
         } catch (error) {
+
             console.error(
                 `[SERVER] Failed closing ${pairingId}:`,
                 error.message
@@ -1859,11 +2848,15 @@ async function shutdown(
 process.on(
     "SIGINT",
     () =>
-        shutdown("SIGINT")
+        shutdown(
+            "SIGINT"
+        )
 );
 
 process.on(
     "SIGTERM",
     () =>
-        shutdown("SIGTERM")
+        shutdown(
+            "SIGTERM"
+        )
 );
