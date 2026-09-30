@@ -3,27 +3,41 @@
 const crypto = require("crypto");
 
 /*
- * In-memory deployment-code store.
+ * ETIAS-MINI-BOT
+ * Session / Deployment Manager
  *
- * For production with multiple Render instances,
- * move this to MongoDB/Redis so codes survive restarts
- * and are shared between instances.
+ * After WhatsApp pairing:
+ *
+ *     ETIAS-MINI-BOT~22552756
+ *
+ * is generated and sent to the authenticated WhatsApp account.
+ *
+ * The deployment code remains internal and is NOT used as
+ * the session ID.
  */
+
 const deploymentCodes = new Map();
 
 const CODE_LENGTH = 8;
+const SESSION_LENGTH = 8;
 const CODE_TTL = 10 * 60 * 1000; // 10 minutes
 
-function generateCode() {
-    /*
-     * Generate exactly 8 numeric digits.
-     * Leading zeroes are allowed.
-     */
+// ============================================================
+// GENERATE RANDOM NUMERIC VALUE
+// ============================================================
+
+function generateNumericId(length = 8) {
+    const max = 10 ** length;
+
     return crypto
-        .randomInt(0, 100000000)
+        .randomInt(0, max)
         .toString()
-        .padStart(CODE_LENGTH, "0");
+        .padStart(length, "0");
 }
+
+// ============================================================
+// HASH
+// ============================================================
 
 function hashCode(code) {
     return crypto
@@ -32,54 +46,76 @@ function hashCode(code) {
         .digest("hex");
 }
 
+// ============================================================
+// GENERATE SESSION ID
+// ============================================================
+
+function generateSessionId() {
+    const number = generateNumericId(SESSION_LENGTH);
+
+    return `ETIAS-MINI-BOT~${number}`;
+}
+
+// ============================================================
+// GENERATE DEPLOYMENT CODE
+// ============================================================
+
 function generateDeploymentCode({
     pairingId,
     jid,
     authFolder
 }) {
     if (!pairingId) {
-        throw new Error(
-            "pairingId is required"
-        );
+        throw new Error("pairingId is required");
     }
 
     if (!jid) {
-        throw new Error(
-            "WhatsApp JID is required"
-        );
+        throw new Error("WhatsApp JID is required");
     }
 
     if (!authFolder) {
-        throw new Error(
-            "authFolder is required"
-        );
+        throw new Error("authFolder is required");
     }
 
-    const code = generateCode();
+    // Internal one-time deployment verification code
+    const code = generateNumericId(CODE_LENGTH);
+
+    // Short readable session ID
+    const sessionId = generateSessionId();
 
     const codeHash = hashCode(code);
 
-    const expiresAt =
-        Date.now() + CODE_TTL;
+    const expiresAt = Date.now() + CODE_TTL;
 
-    deploymentCodes.set(
+    deploymentCodes.set(pairingId, {
         pairingId,
-        {
-            pairingId,
-            jid,
-            authFolder,
-            codeHash,
-            expiresAt,
-            used: false,
-            createdAt: Date.now()
-        }
-    );
+
+        // New session ID
+        sessionId,
+
+        // Internal deployment code
+        codeHash,
+
+        jid,
+        authFolder,
+
+        expiresAt,
+
+        used: false,
+
+        createdAt: Date.now()
+    });
 
     return {
         code,
+        sessionId,
         expiresAt
     };
 }
+
+// ============================================================
+// GENERATE AND SEND SESSION ID
+// ============================================================
 
 async function generateAndSendSession(
     sock,
@@ -104,11 +140,24 @@ async function generateAndSendSession(
         );
     }
 
+    if (!pairingId) {
+        throw new Error(
+            "pairingId is required"
+        );
+    }
+
     /*
-     * Generate a one-time deployment code.
+     * Generate the deployment record.
+     *
+     * This creates:
+     *
+     *   deployment code = internal
+     *   session ID      = ETIAS-MINI-BOT~12345678
      */
+
     const {
         code,
+        sessionId,
         expiresAt
     } = generateDeploymentCode({
         pairingId,
@@ -116,25 +165,31 @@ async function generateAndSendSession(
         authFolder
     });
 
+    /*
+     * IMPORTANT:
+     *
+     * Do NOT send the internal deployment code.
+     *
+     * Send the actual session ID.
+     */
+
     const message =
         "╭━━━〔 ETIAS-MINI-BOT 〕━━━╮\n" +
         "┃\n" +
-        "┃ DEPLOYMENT CODE\n" +
+        "┃ ✅ WHATSAPP PAIRED\n" +
         "┃\n" +
-        `┃ ${code}\n` +
+        "┃ 🔑 SESSION ID\n" +
         "┃\n" +
-        "┃ Enter this code on the\n" +
-        "┃ deployment page to link\n" +
-        "┃ your bot.\n" +
+        `┃ ${sessionId}\n` +
         "┃\n" +
-        "┃ Expires in 10 minutes.\n" +
-        "┃ One-time use only.\n" +
+        "┃ Copy the Session ID above\n" +
+        "┃ contact owner for deployment\n" +
+        "┃ Don't edit the session.\n" +
+        "┃\n" +
+        "┃ ⏳ Valid for 10 minutes\n" +
         "┃\n" +
         "╰━━━━━━━━━━━━━━━━━━━━━━╯";
 
-    /*
-     * Send the code directly as a message.
-     */
     await sock.sendMessage(
         targetJid,
         {
@@ -147,19 +202,27 @@ async function generateAndSendSession(
     );
 
     console.log(
-        "[DEPLOYMENT] Code generated"
+        "[SESSION] WhatsApp pairing completed"
     );
 
     console.log(
-        `[DEPLOYMENT] Pairing ID: ${pairingId}`
+        `[SESSION] Pairing ID: ${pairingId}`
     );
 
     console.log(
-        `[DEPLOYMENT] JID: ${targetJid}`
+        `[SESSION] JID: ${targetJid}`
     );
 
     console.log(
-        `[DEPLOYMENT] Code expires: ${new Date(
+        `[SESSION] Session ID: ${sessionId}`
+    );
+
+    console.log(
+        `[SESSION] Auth folder: ${authFolder}`
+    );
+
+    console.log(
+        `[SESSION] Expires: ${new Date(
             expiresAt
         ).toISOString()}`
     );
@@ -169,44 +232,47 @@ async function generateAndSendSession(
     );
 
     /*
-     * Return the code to index.js.
-     *
-     * Do not log the actual code in production.
+     * Return the SESSION ID, not the deployment code.
      */
+
     return {
-        sessionId: code,
+        sessionId,
+
+        // Kept internally for compatibility
         deploymentCode: code,
+
         pairingId,
+
         jid: targetJid,
+
+        authFolder,
+
         expiresAt
     };
 }
 
-/*
- * Verify a code entered on the deployment page.
- */
+// ============================================================
+// VERIFY DEPLOYMENT CODE / SESSION ID
+// ============================================================
+
 function verifyDeploymentCode(
     pairingId,
     submittedCode
 ) {
     const record =
-        deploymentCodes.get(
-            pairingId
-        );
+        deploymentCodes.get(pairingId);
 
     if (!record) {
         return {
             success: false,
-            error:
-                "Deployment code not found"
+            error: "Deployment session not found"
         };
     }
 
     if (record.used) {
         return {
             success: false,
-            error:
-                "Deployment code has already been used"
+            error: "Deployment session has already been used"
         };
     }
 
@@ -214,23 +280,65 @@ function verifyDeploymentCode(
         Date.now() >
         record.expiresAt
     ) {
-        deploymentCodes.delete(
-            pairingId
-        );
+        deploymentCodes.delete(pairingId);
 
         return {
             success: false,
-            error:
-                "Deployment code has expired"
+            error: "Session ID has expired"
         };
     }
 
-    const submittedHash =
-        hashCode(
-            String(
-                submittedCode
-            ).trim()
+    const submitted =
+        String(submittedCode || "")
+            .trim();
+
+    /*
+     * Accept the NEW format:
+     *
+     * ETIAS-MINI-BOT~22552756
+     *
+     * This is what the user pastes into
+     * the Session ID field.
+     */
+
+    if (
+        submitted ===
+        record.sessionId
+    ) {
+        record.used = true;
+
+        deploymentCodes.set(
+            pairingId,
+            record
         );
+
+        return {
+            success: true,
+
+            pairingId:
+                record.pairingId,
+
+            sessionId:
+                record.sessionId,
+
+            jid:
+                record.jid,
+
+            authFolder:
+                record.authFolder
+        };
+    }
+
+    /*
+     * Backwards compatibility:
+     *
+     * Also allow the old numeric deployment
+     * code if an older deployment page is
+     * still being used.
+     */
+
+    const submittedHash =
+        hashCode(submitted);
 
     if (
         submittedHash !==
@@ -238,14 +346,10 @@ function verifyDeploymentCode(
     ) {
         return {
             success: false,
-            error:
-                "Invalid deployment code"
+            error: "Invalid Session ID"
         };
     }
 
-    /*
-     * One-time use.
-     */
     record.used = true;
 
     deploymentCodes.set(
@@ -255,19 +359,25 @@ function verifyDeploymentCode(
 
     return {
         success: true,
+
         pairingId:
             record.pairingId,
+
+        sessionId:
+            record.sessionId,
+
         jid:
             record.jid,
+
         authFolder:
             record.authFolder
     };
 }
 
-/*
- * Get deployment information without
- * exposing the actual code.
- */
+// ============================================================
+// GET DEPLOYMENT STATUS
+// ============================================================
+
 function getDeploymentCodeStatus(
     pairingId
 ) {
@@ -294,18 +404,28 @@ function getDeploymentCodeStatus(
     return {
         pairingId:
             record.pairingId,
+
+        sessionId:
+            record.sessionId,
+
         jid:
             record.jid,
+
+        authFolder:
+            record.authFolder,
+
         expiresAt:
             record.expiresAt,
+
         used:
             record.used
     };
 }
 
-/*
- * Remove an existing code.
- */
+// ============================================================
+// DELETE DEPLOYMENT SESSION
+// ============================================================
+
 function deleteDeploymentCode(
     pairingId
 ) {
@@ -314,9 +434,10 @@ function deleteDeploymentCode(
     );
 }
 
-/*
- * Cleanup expired codes.
- */
+// ============================================================
+// CLEANUP EXPIRED SESSIONS
+// ============================================================
+
 setInterval(
     () => {
         const now =
@@ -341,10 +462,15 @@ setInterval(
     60 * 1000
 ).unref();
 
+// ============================================================
+// EXPORTS
+// ============================================================
+
 module.exports = {
     generateAndSendSession,
     generateDeploymentCode,
     verifyDeploymentCode,
     getDeploymentCodeStatus,
-    deleteDeploymentCode
+    deleteDeploymentCode,
+    generateSessionId
 };
