@@ -22,6 +22,7 @@ rel="stylesheet">
     --text:#fff;
     --muted:#aaa;
     --red:#ff3333;
+    --yellow:#ffd43b;
     --radius:20px;
 }
 
@@ -123,6 +124,10 @@ body{
     display:flex;
     align-items:center;
     gap:6px;
+}
+
+.battery i{
+    transition:.3s;
 }
 
 .main{
@@ -277,8 +282,6 @@ body{
     line-height:1.5;
 }
 
-/* PHONE INPUT */
-
 .input-group{
     margin:15px 0;
     text-align:left;
@@ -309,8 +312,6 @@ body{
     box-shadow:0 0 15px rgba(37,211,102,0.25);
 }
 
-/* QR */
-
 #qr-container{
     margin:15px auto;
     padding:18px;
@@ -322,6 +323,7 @@ body{
     justify-content:center;
     max-width:300px;
     min-width:300px;
+    overflow:hidden;
 }
 
 #qr-container img{
@@ -334,6 +336,7 @@ body{
 .qr-loading{
     color:#000 !important;
     font-weight:700;
+    text-align:center;
 }
 
 .status{
@@ -356,6 +359,12 @@ body{
 .status.success{
     color:var(--green);
     border-color:var(--green);
+}
+
+.status.warning{
+    color:var(--yellow);
+    border-color:rgba(255,212,59,.4);
+    background:rgba(255,212,59,.05);
 }
 
 .pair-id{
@@ -443,6 +452,26 @@ body{
     margin-bottom:10px;
 }
 
+.qr-expired{
+    color:var(--red);
+    text-align:center;
+}
+
+.qr-expired i{
+    font-size:2.5rem;
+    margin-bottom:12px;
+}
+
+.live-dot{
+    display:inline-block;
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:var(--green);
+    box-shadow:0 0 8px var(--green);
+    animation:blink 1.5s infinite;
+}
+
 @media(max-width:480px){
 
     .logo-text{
@@ -488,6 +517,7 @@ body{
     <div class="battery">
 
         <i
+            id="battery-icon"
             class="fas fa-battery-full"
             style="color:var(--green)"
         ></i>
@@ -502,8 +532,6 @@ body{
 
 
 <div class="main">
-
-    <!-- PROFILE -->
 
     <div class="profile">
 
@@ -522,8 +550,6 @@ body{
 
     </div>
 
-
-    <!-- STATS -->
 
     <div class="stats">
 
@@ -555,8 +581,6 @@ body{
     </div>
 
 
-    <!-- QR BOX -->
-
     <div class="box">
 
         <h2>
@@ -572,8 +596,6 @@ body{
             Then scan the generated QR with WhatsApp.
         </p>
 
-
-        <!-- PHONE -->
 
         <div class="input-group">
 
@@ -593,8 +615,6 @@ body{
         </div>
 
 
-        <!-- STATUS -->
-
         <div
             id="status"
             class="status"
@@ -603,8 +623,6 @@ body{
             Enter your WhatsApp number and press GENERATE QR.
         </div>
 
-
-        <!-- QR -->
 
         <div id="qr-container">
 
@@ -619,8 +637,6 @@ body{
         </div>
 
 
-        <!-- TIMER -->
-
         <p id="qr-timer">
 
             Expires in
@@ -630,8 +646,6 @@ body{
 
         </p>
 
-
-        <!-- GENERATE -->
 
         <button
             id="generateBtn"
@@ -645,8 +659,6 @@ body{
 
         </button>
 
-
-        <!-- REFRESH -->
 
         <button
             id="refreshBtn"
@@ -662,8 +674,6 @@ body{
         </button>
 
 
-        <!-- PAIR CODE -->
-
         <a
             href="/pair"
             class="btn btn-outline"
@@ -675,8 +685,6 @@ body{
 
         </a>
 
-
-        <!-- PAIRING INFORMATION -->
 
         <div
             id="pairInfo"
@@ -711,8 +719,6 @@ body{
 
         </div>
 
-
-        <!-- CONNECTED -->
 
         <div
             id="connectedBox"
@@ -751,7 +757,7 @@ body{
 
                 <br><br>
 
-                <b>Do not edit or publicly share your SESSION_ID.</b>
+                <b>Keep your SESSION_ID private.</b>
 
             </p>
 
@@ -772,8 +778,6 @@ body{
 
     </div>
 
-
-    <!-- ABOUT -->
 
     <div class="about">
 
@@ -835,9 +839,9 @@ body{
 
 <script>
 
-/* ==========================================
+/* =========================================================
    PARTICLES
-========================================== */
+========================================================= */
 
 if(window.particlesJS){
 
@@ -909,18 +913,20 @@ if(window.particlesJS){
 }
 
 
-/* ==========================================
+/* =========================================================
    IMAGE FALLBACK
-========================================== */
+========================================================= */
 
 function fixImg(el){
 
-    const fallbackImages = [
+    if(!el){
+        return;
+    }
 
+    const fallbackImages = [
         '/media/bot.jpg',
         '/media/bot.png',
         '/media/logo.jpg'
-
     ];
 
     let index = 0;
@@ -929,14 +935,19 @@ function fixImg(el){
 
         if(index < fallbackImages.length){
 
-            el.src = fallbackImages[index++];
+            el.src =
+                fallbackImages[index++];
 
         }else{
 
             el.onerror = null;
 
-            el.src =
-                'https://i.imgur.com/8Km9tLL.png';
+            /*
+             * Leave the local fallback rather than
+             * depending on an external image.
+             */
+
+            el.style.opacity = "0.35";
 
         }
 
@@ -953,26 +964,23 @@ fixImg(
 );
 
 
-/* ==========================================
+/* =========================================================
    VARIABLES
-========================================== */
+========================================================= */
 
 let pairingId = null;
-
 let pollingTimer = null;
-
 let qrTimer = null;
-
 let qrSeconds = 60;
-
 let connected = false;
+let qrLoaded = false;
 
 
-/* ==========================================
+/* =========================================================
    HELPERS
-========================================== */
+========================================================= */
 
-function setStatus(message, type=''){
+function setStatus(message,type=''){
 
     const box =
         document.getElementById('status');
@@ -997,10 +1005,6 @@ function setPairingStatus(value){
 }
 
 
-/* ==========================================
-   NORMALIZE PHONE
-========================================== */
-
 function cleanPhone(value){
 
     return String(value || '')
@@ -1011,16 +1015,26 @@ function cleanPhone(value){
 }
 
 
-/* ==========================================
+function escapeHtml(value){
+
+    return String(value || '')
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;')
+        .replace(/'/g,'&#039;');
+
+}
+
+
+/* =========================================================
    START PAIRING
-========================================== */
+========================================================= */
 
 async function startPairing(){
 
     if(connected){
-
         return;
-
     }
 
     const phoneInput =
@@ -1029,7 +1043,8 @@ async function startPairing(){
     const phone =
         cleanPhone(phoneInput.value);
 
-    if(phone.length < 10){
+
+    if(phone.length < 8){
 
         setStatus(
             '<i class="fas fa-triangle-exclamation"></i> ' +
@@ -1045,24 +1060,26 @@ async function startPairing(){
 
 
     clearPolling();
-
     clearQRTimer();
 
     pairingId = null;
+    qrLoaded = false;
 
 
     const generateBtn =
         document.getElementById('generateBtn');
 
+    const refreshBtn =
+        document.getElementById('refreshBtn');
+
+
     generateBtn.disabled = true;
+
+    refreshBtn.disabled = true;
+
 
     generateBtn.innerHTML =
         '<i class="fas fa-spinner fa-spin"></i> STARTING...';
-
-
-    document.getElementById(
-        'refreshBtn'
-    ).disabled = true;
 
 
     document.getElementById(
@@ -1079,7 +1096,7 @@ async function startPairing(){
         'qr-container'
     ).innerHTML =
         '<p class="qr-loading">' +
-        '<i class="fas fa-spinner fa-spin"></i> ' +
+        '<i class="fas fa-spinner fa-spin"></i><br><br>' +
         'Starting WhatsApp pairing...' +
         '</p>';
 
@@ -1097,7 +1114,10 @@ async function startPairing(){
                 '/code?number=' +
                 encodeURIComponent(phone) +
                 '&t=' +
-                Date.now()
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
             );
 
 
@@ -1105,44 +1125,25 @@ async function startPairing(){
             await response.json();
 
 
-        if(!response.ok){
+        console.log(
+            '[QR] /code response:',
+            data
+        );
 
-            /*
-             * Some backend versions return
-             * pairingId when an active pairing
-             * already exists.
-             */
 
-            const existing =
+        /*
+         * Handle existing pairing IDs even
+         * when server returns HTTP 409/400.
+         */
+
+        if(
+            !response.ok &&
+            !(
                 data.pairingId ||
                 data.id ||
-                data.existingPairingId;
-
-            if(existing){
-
-                pairingId = existing;
-
-                document.getElementById(
-                    'pairingId'
-                ).textContent =
-                    pairingId;
-
-                setStatus(
-                    '<i class="fas fa-link"></i> ' +
-                    'Existing pairing found. Checking status...',
-                    ''
-                );
-
-                startPolling();
-
-                generateBtn.disabled = false;
-
-                generateBtn.innerHTML =
-                    '<i class="fas fa-qrcode"></i> GENERATE QR';
-
-                return;
-
-            }
+                data.existingPairingId
+            )
+        ){
 
             throw new Error(
                 data.error ||
@@ -1155,7 +1156,9 @@ async function startPairing(){
 
         pairingId =
             data.pairingId ||
-            data.id;
+            data.id ||
+            data.existingPairingId ||
+            null;
 
 
         if(!pairingId){
@@ -1177,6 +1180,29 @@ async function startPairing(){
             data.status || 'starting'
         );
 
+
+        /*
+         * If the backend returns a QR directly.
+         */
+
+        const directQR =
+            data.qr ||
+            data.qrImage;
+
+
+        if(
+            directQR &&
+            String(directQR).startsWith('data:image')
+        ){
+
+            displayQR(directQR);
+
+        }
+
+
+        /*
+         * If QR is not ready yet, poll.
+         */
 
         setStatus(
             '<i class="fas fa-spinner fa-spin"></i> ' +
@@ -1207,10 +1233,9 @@ async function startPairing(){
             'qr-container'
         ).innerHTML =
             '<p style="color:#ff3333">' +
-            '<i class="fas fa-triangle-exclamation"></i><br>' +
+            '<i class="fas fa-triangle-exclamation"></i><br><br>' +
             'Unable to start pairing.' +
             '</p>';
-
 
     }finally{
 
@@ -1224,9 +1249,9 @@ async function startPairing(){
 }
 
 
-/* ==========================================
-   STATUS POLLING
-========================================== */
+/* =========================================================
+   POLLING
+========================================================= */
 
 function startPolling(){
 
@@ -1258,16 +1283,14 @@ function clearPolling(){
 }
 
 
-/* ==========================================
+/* =========================================================
    CHECK STATUS
-========================================== */
+========================================================= */
 
 async function checkPairingStatus(){
 
     if(!pairingId){
-
         return;
-
     }
 
 
@@ -1278,7 +1301,10 @@ async function checkPairingStatus(){
                 '/status/' +
                 encodeURIComponent(pairingId) +
                 '?t=' +
-                Date.now()
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
             );
 
 
@@ -1286,11 +1312,18 @@ async function checkPairingStatus(){
             await response.json();
 
 
+        console.log(
+            '[QR] Status:',
+            data
+        );
+
+
         if(!response.ok){
 
             throw new Error(
                 data.error ||
-                'Pairing not found'
+                data.message ||
+                'Pairing status unavailable'
             );
 
         }
@@ -1299,31 +1332,57 @@ async function checkPairingStatus(){
         const status =
             String(
                 data.status ||
-                'unknown'
+                ''
             ).toLowerCase();
 
 
         setPairingStatus(
-            status
+            status || 'UNKNOWN'
         );
 
 
         /*
-         * QR AVAILABLE
+         * Direct QR returned by status endpoint.
          */
 
+        const qr =
+            data.qr ||
+            data.qrImage;
+
+
         if(
-            data.qrImage ||
-            status === 'qr'
+            qr &&
+            String(qr).startsWith('data:image')
         ){
 
-            await loadCurrentQR();
+            displayQR(qr);
 
         }
 
 
         /*
-         * PAIRING CODE STATE
+         * QR state.
+         */
+
+        if(
+            status === 'qr' ||
+            status === 'qr_ready' ||
+            status === 'waiting_qr'
+        ){
+
+            if(!qrLoaded){
+
+                await loadCurrentQR();
+
+            }
+
+        }
+
+
+        /*
+         * Pair-code state.
+         *
+         * We do not expose the session ID here.
          */
 
         if(
@@ -1331,17 +1390,16 @@ async function checkPairingStatus(){
         ){
 
             setStatus(
-                '<i class="fas fa-mobile-screen-button"></i> ' +
-                'Pairing code is available. ' +
-                'You can use the Pair Code page.',
-                ''
+                '<i class="fas fa-key"></i> ' +
+                'Pairing code is ready. Use the PAIR CODE page.',
+                'warning'
             );
 
         }
 
 
         /*
-         * CONNECTED
+         * Connected.
          */
 
         if(
@@ -1349,57 +1407,7 @@ async function checkPairingStatus(){
             data.connected === true
         ){
 
-            connected = true;
-
-            clearPolling();
-
-            clearQRTimer();
-
-            document.getElementById(
-                'qr-container'
-            ).innerHTML =
-                '<div style="color:#25D366;text-align:center">' +
-
-                '<i class="fas fa-circle-check" ' +
-                'style="font-size:4rem"></i>' +
-
-                '<br><br>' +
-
-                '<b style="color:#000;font-size:1rem">' +
-                'WHATSAPP CONNECTED' +
-                '</b>' +
-
-                '</div>';
-
-
-            document.getElementById(
-                'countdown'
-            ).textContent =
-                '✓';
-
-
-            setStatus(
-                '<i class="fas fa-circle-check"></i> ' +
-                'WhatsApp connected successfully. ' +
-                'Your SESSION_ID is being sent automatically.',
-                'success'
-            );
-
-
-            document.getElementById(
-                'connectedBox'
-            ).classList.remove('hidden');
-
-
-            document.getElementById(
-                'refreshBtn'
-            ).disabled = true;
-
-
-            document.getElementById(
-                'generateBtn'
-            ).disabled = true;
-
+            handleConnected();
 
             return;
 
@@ -1407,7 +1415,7 @@ async function checkPairingStatus(){
 
 
         /*
-         * ERROR STATE
+         * Error.
          */
 
         if(
@@ -1429,37 +1437,32 @@ async function checkPairingStatus(){
 
     }catch(error){
 
-        console.error(
-            '[QR] Status error:',
-            error
+        console.warn(
+            '[QR] Status check:',
+            error.message
         );
 
         /*
-         * Do not immediately kill polling.
-         * Temporary network errors are common.
+         * Don't destroy a working QR because of
+         * one temporary network failure.
          */
-
-        setStatus(
-            '<i class="fas fa-wifi"></i> ' +
-            'Checking pairing connection...',
-            ''
-        );
 
     }
 
 }
 
 
-/* ==========================================
-   LOAD CURRENT QR
-========================================== */
+/* =========================================================
+   LOAD QR
+========================================================= */
 
 async function loadCurrentQR(){
 
-    if(!pairingId || connected){
-
+    if(
+        !pairingId ||
+        connected
+    ){
         return;
-
     }
 
 
@@ -1470,7 +1473,10 @@ async function loadCurrentQR(){
                 '/qr-image?id=' +
                 encodeURIComponent(pairingId) +
                 '&t=' +
-                Date.now()
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
             );
 
 
@@ -1482,6 +1488,7 @@ async function loadCurrentQR(){
 
             throw new Error(
                 data.error ||
+                data.message ||
                 'QR not available'
             );
 
@@ -1495,9 +1502,7 @@ async function loadCurrentQR(){
 
         if(
             !qr ||
-            !String(qr).startsWith(
-                'data:image'
-            )
+            !String(qr).startsWith('data:image')
         ){
 
             return;
@@ -1505,28 +1510,8 @@ async function loadCurrentQR(){
         }
 
 
-        document.getElementById(
-            'qr-container'
-        ).innerHTML =
+        displayQR(qr);
 
-            '<img src="' +
-            qr +
-            '" alt="WhatsApp QR Code">';
-
-
-        setStatus(
-            '<i class="fas fa-qrcode"></i> ' +
-            'QR ready. Open WhatsApp → Linked Devices → Link a Device and scan it.',
-            ''
-        );
-
-
-        startQRTimer(60);
-
-
-        document.getElementById(
-            'refreshBtn'
-        ).disabled = false;
 
     }catch(error){
 
@@ -1540,9 +1525,111 @@ async function loadCurrentQR(){
 }
 
 
-/* ==========================================
+/* =========================================================
+   DISPLAY QR
+========================================================= */
+
+function displayQR(qr){
+
+    if(
+        !qr ||
+        connected
+    ){
+        return;
+    }
+
+
+    qrLoaded = true;
+
+
+    document.getElementById(
+        'qr-container'
+    ).innerHTML =
+        '<img src="' +
+        escapeHtml(qr) +
+        '" alt="WhatsApp QR Code">';
+
+
+    setStatus(
+        '<i class="fas fa-qrcode"></i> ' +
+        'QR ready. Open WhatsApp → Linked Devices → Link a Device and scan it.',
+        ''
+    );
+
+
+    startQRTimer(60);
+
+
+    document.getElementById(
+        'refreshBtn'
+    ).disabled = false;
+
+}
+
+
+/* =========================================================
+   CONNECTED
+========================================================= */
+
+function handleConnected(){
+
+    connected = true;
+
+    clearPolling();
+    clearQRTimer();
+
+
+    document.getElementById(
+        'qr-container'
+    ).innerHTML =
+        '<div style="color:#25D366;text-align:center">' +
+
+        '<i class="fas fa-circle-check" ' +
+        'style="font-size:4rem"></i>' +
+
+        '<br><br>' +
+
+        '<b style="color:#000;font-size:1rem">' +
+        'WHATSAPP CONNECTED' +
+        '</b>' +
+
+        '</div>';
+
+
+    document.getElementById(
+        'countdown'
+    ).textContent =
+        '✓';
+
+
+    setStatus(
+        '<i class="fas fa-circle-check"></i> ' +
+        'WhatsApp connected successfully. ' +
+        'Your SESSION_ID is being sent automatically.',
+        'success'
+    );
+
+
+    document.getElementById(
+        'connectedBox'
+    ).classList.remove('hidden');
+
+
+    document.getElementById(
+        'refreshBtn'
+    ).disabled = true;
+
+
+    document.getElementById(
+        'generateBtn'
+    ).disabled = true;
+
+}
+
+
+/* =========================================================
    QR TIMER
-========================================== */
+========================================================= */
 
 function startQRTimer(seconds){
 
@@ -1559,50 +1646,54 @@ function startQRTimer(seconds){
 
 
     qrTimer =
-        setInterval(()=>{
+        setInterval(
+            () => {
 
-            qrSeconds--;
-
-            document.getElementById(
-                'countdown'
-            ).textContent =
-                Math.max(
-                    qrSeconds,
-                    0
-                );
+                qrSeconds--;
 
 
-            if(qrSeconds <= 0){
+                document.getElementById(
+                    'countdown'
+                ).textContent =
+                    Math.max(
+                        qrSeconds,
+                        0
+                    );
 
-                clearQRTimer();
+
+                if(qrSeconds <= 0){
+
+                    clearQRTimer();
 
 
-                if(!connected){
+                    if(!connected){
 
-                    document.getElementById(
-                        'qr-container'
-                    ).innerHTML =
-                        '<p style="color:#ff3333">' +
+                        document.getElementById(
+                            'qr-container'
+                        ).innerHTML =
+                            '<div class="qr-expired">' +
 
-                        '<i class="fas fa-clock"></i>' +
+                            '<i class="fas fa-clock"></i>' +
 
-                        '<br><br>' +
+                            '<br>' +
 
-                        'QR may have expired.' +
+                            '<b>QR MAY HAVE EXPIRED</b>' +
 
-                        '<br>' +
+                            '<br><br>' +
 
-                        '<small>' +
-                        'Press REFRESH QR to check for a new QR.' +
-                        '</small>' +
+                            '<small>' +
+                            'Press REFRESH QR to check for a new QR.' +
+                            '</small>' +
 
-                        '</p>';
+                            '</div>';
+
+                    }
 
                 }
 
-            }
-
-        },1000);
+            },
+            1000
+        );
 
 }
 
@@ -1622,9 +1713,9 @@ function clearQRTimer(){
 }
 
 
-/* ==========================================
+/* =========================================================
    REFRESH QR
-========================================== */
+========================================================= */
 
 async function refreshQR(){
 
@@ -1642,9 +1733,7 @@ async function refreshQR(){
 
 
     if(connected){
-
         return;
-
     }
 
 
@@ -1660,11 +1749,14 @@ async function refreshQR(){
         '<i class="fas fa-spinner fa-spin"></i> CHECKING...';
 
 
+    qrLoaded = false;
+
+
     document.getElementById(
         'qr-container'
     ).innerHTML =
         '<p class="qr-loading">' +
-        '<i class="fas fa-spinner fa-spin"></i> ' +
+        '<i class="fas fa-spinner fa-spin"></i><br><br>' +
         'Getting latest QR...' +
         '</p>';
 
@@ -1676,12 +1768,16 @@ async function refreshQR(){
 
         await checkPairingStatus();
 
-        await loadCurrentQR();
+        if(!qrLoaded){
+
+            await loadCurrentQR();
+
+        }
 
     }finally{
 
         button.disabled =
-            connected;
+            connected || !pairingId;
 
         button.innerHTML =
             '<i class="fas fa-sync-alt"></i> REFRESH QR';
@@ -1691,156 +1787,500 @@ async function refreshQR(){
 }
 
 
-/* ==========================================
+/* =========================================================
    BATTERY
-========================================== */
+========================================================= */
 
-(async()=>{
+async function updateBattery(){
+
+    const level =
+        document.getElementById(
+            'battery-level'
+        );
+
+    const icon =
+        document.getElementById(
+            'battery-icon'
+        );
+
 
     try{
 
         if(
-            navigator.getBattery
+            !navigator.getBattery
         ){
 
-            const battery =
-                await navigator.getBattery();
+            level.textContent =
+                'N/A';
 
-
-            const updateBattery = ()=>{
-
-                document.getElementById(
-                    'battery-level'
-                ).textContent =
-                    Math.round(
-                        battery.level * 100
-                    ) + '%';
-
-            };
-
-
-            battery.addEventListener(
-                'levelchange',
-                updateBattery
-            );
-
-
-            updateBattery();
-
-        }else{
-
-            document.getElementById(
-                'battery-level'
-            ).textContent =
-                '100%';
+            return;
 
         }
 
-    }catch{
 
-        document.getElementById(
-            'battery-level'
-        ).textContent =
+        const battery =
+            await navigator.getBattery();
+
+
+        function renderBattery(){
+
+            const percentage =
+                Math.round(
+                    battery.level * 100
+                );
+
+
+            level.textContent =
+                percentage + '%';
+
+
+            icon.className =
+                'fas';
+
+
+            if(percentage <= 10){
+
+                icon.classList.add(
+                    'fa-battery-empty'
+                );
+
+                icon.style.color =
+                    'var(--red)';
+
+            }else if(percentage <= 25){
+
+                icon.classList.add(
+                    'fa-battery-quarter'
+                );
+
+                icon.style.color =
+                    'var(--red)';
+
+            }else if(percentage <= 50){
+
+                icon.classList.add(
+                    'fa-battery-half'
+                );
+
+                icon.style.color =
+                    'var(--yellow)';
+
+            }else if(percentage <= 75){
+
+                icon.classList.add(
+                    'fa-battery-three-quarters'
+                );
+
+                icon.style.color =
+                    'var(--green)';
+
+            }else{
+
+                icon.classList.add(
+                    'fa-battery-full'
+                );
+
+                icon.style.color =
+                    'var(--green)';
+
+            }
+
+        }
+
+
+        renderBattery();
+
+
+        battery.addEventListener(
+            'levelchange',
+            renderBattery
+        );
+
+
+    }catch(error){
+
+        console.warn(
+            '[BATTERY]',
+            error
+        );
+
+        level.textContent =
             '--%';
 
     }
 
-})();
+}
 
 
-/* ==========================================
+/* =========================================================
    TOTAL USERS
-========================================== */
+========================================================= */
 
 async function updateTotalUsers(){
+
+    const totalElement =
+        document.getElementById(
+            'total-users'
+        );
 
     try{
 
         const response =
             await fetch(
                 '/total-users?t=' +
-                Date.now()
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
             );
+
+
+        if(!response.ok){
+
+            throw new Error(
+                'Total users request failed'
+            );
+
+        }
 
 
         const data =
             await response.json();
 
 
-        document.getElementById(
-            'total-users'
-        ).textContent =
-            Number(
-                data.total || 0
-            ).toLocaleString();
+        console.log(
+            '[TOTAL USERS]',
+            data
+        );
 
 
-        document.getElementById(
-            'online-users'
-        ).textContent =
-            data.online || 0;
+        const total =
+            data.totalUsers ??
+            data.total ??
+            data.users ??
+            data.count ??
+            (
+                data.data
+                ? (
+                    data.data.totalUsers ??
+                    data.data.total ??
+                    data.data.count
+                )
+                : null
+            );
+
+
+        if(
+            total !== null &&
+            total !== undefined
+        ){
+
+            totalElement.textContent =
+                Number(total).toLocaleString();
+
+        }
 
 
     }catch(error){
 
-        document.getElementById(
-            'total-users'
-        ).textContent =
-            'Unknown';
+        console.warn(
+            '[TOTAL USERS]',
+            error.message
+        );
 
+        if(
+            totalElement.textContent === '...'
+        ){
 
-        document.getElementById(
-            'online-users'
-        ).textContent =
-            'Unknown';
+            totalElement.textContent =
+                '0';
+
+        }
 
     }
 
 }
 
 
-/* ==========================================
-   HTML ESCAPE
-========================================== */
+/* =========================================================
+   ONLINE USERS
+========================================================= */
 
-function escapeHtml(value){
+async function updateOnlineUsers(){
 
-    return String(value || '')
-        .replace(/&/g,'&amp;')
-        .replace(/</g,'&lt;')
-        .replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;')
-        .replace(/'/g,'&#039;');
+    const onlineElement =
+        document.getElementById(
+            'online-users'
+        );
+
+
+    /*
+     * First try /deploy-stats because this endpoint
+     * is specifically intended for live deployment
+     * statistics.
+     */
+
+    try{
+
+        const response =
+            await fetch(
+                '/deploy-stats?t=' +
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
+            );
+
+
+        if(response.ok){
+
+            const data =
+                await response.json();
+
+
+            console.log(
+                '[DEPLOY STATS]',
+                data
+            );
+
+
+            let online =
+                data.onlineUsers ??
+                data.online ??
+                data.activeUsers ??
+                data.active ??
+                data.connected ??
+                null;
+
+
+            if(
+                online === null &&
+                data.stats
+            ){
+
+                online =
+                    data.stats.onlineUsers ??
+                    data.stats.online ??
+                    data.stats.activeUsers ??
+                    data.stats.active ??
+                    data.stats.connected ??
+                    null;
+
+            }
+
+
+            if(
+                online === null &&
+                data.data
+            ){
+
+                online =
+                    data.data.onlineUsers ??
+                    data.data.online ??
+                    data.data.activeUsers ??
+                    data.data.active ??
+                    data.data.connected ??
+                    null;
+
+            }
+
+
+            if(
+                online !== null &&
+                online !== undefined
+            ){
+
+                onlineElement.textContent =
+                    Number(online).toLocaleString();
+
+                return;
+
+            }
+
+        }
+
+    }catch(error){
+
+        console.warn(
+            '[DEPLOY STATS]',
+            error.message
+        );
+
+    }
+
+
+    /*
+     * Fallback: some older backends include
+     * online directly in /total-users.
+     */
+
+    try{
+
+        const response =
+            await fetch(
+                '/total-users?t=' +
+                Date.now(),
+                {
+                    cache:'no-store'
+                }
+            );
+
+
+        if(!response.ok){
+            throw new Error('Fallback failed');
+        }
+
+
+        const data =
+            await response.json();
+
+
+        const online =
+            data.onlineUsers ??
+            data.online ??
+            data.activeUsers ??
+            data.active ??
+            (
+                data.data
+                ? (
+                    data.data.onlineUsers ??
+                    data.data.online ??
+                    data.data.activeUsers ??
+                    data.data.active
+                )
+                : null
+            );
+
+
+        if(
+            online !== null &&
+            online !== undefined
+        ){
+
+            onlineElement.textContent =
+                Number(online).toLocaleString();
+
+        }else{
+
+            onlineElement.textContent =
+                '0';
+
+        }
+
+
+    }catch(error){
+
+        console.warn(
+            '[ONLINE USERS]',
+            error.message
+        );
+
+
+        if(
+            onlineElement.textContent === '...'
+        ){
+
+            onlineElement.textContent =
+                '0';
+
+        }
+
+    }
 
 }
 
 
-/* ==========================================
+/* =========================================================
+   LIVE STATS
+========================================================= */
+
+async function updateStats(){
+
+    await Promise.allSettled([
+
+        updateTotalUsers(),
+
+        updateOnlineUsers(),
+
+        updateBattery()
+
+    ]);
+
+}
+
+
+/* =========================================================
+   PHONE INPUT
+========================================================= */
+
+document
+    .getElementById('phone')
+    .addEventListener(
+        'input',
+        function(){
+
+            this.value =
+                this.value.replace(
+                    /\D/g,
+                    ''
+                );
+
+        }
+    );
+
+
+document
+    .getElementById('phone')
+    .addEventListener(
+        'keydown',
+        function(event){
+
+            if(event.key === 'Enter'){
+
+                event.preventDefault();
+
+                startPairing();
+
+            }
+
+        }
+    );
+
+
+/* =========================================================
    CLEANUP
-========================================== */
+========================================================= */
 
 window.addEventListener(
     'beforeunload',
-    ()=>{
+    () => {
+
         clearPolling();
+
         clearQRTimer();
+
     }
 );
 
 
-/* ==========================================
+/* =========================================================
    INITIALIZE
-========================================== */
+========================================================= */
 
 window.addEventListener(
     'load',
-    ()=>{
+    () => {
 
-        updateTotalUsers();
+        updateStats();
 
         setInterval(
             updateTotalUsers,
             15000
+        );
+
+        setInterval(
+            updateOnlineUsers,
+            10000
         );
 
     }
