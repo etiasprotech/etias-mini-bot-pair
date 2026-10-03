@@ -3,3 +3,5 @@ auth
 data
 .env
 *.log
+data/sessions.json
+auth/

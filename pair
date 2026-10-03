@@ -1,0 +1,1941 @@
+<!DOCTYPE html><html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#25D366"><title>ETIAS-MINI-BOT | Pair Code</title><link rel="stylesheet"
+href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;800;900&family=Montserrat:wght@400;500;600;700;800&display=swap"
+rel="stylesheet"><style>
+
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+:root{
+    --green:#25D366;
+    --dark:#128C7E;
+    --light:#65ff9b;
+    --black:#020403;
+    --bg:#07100b;
+    --card:rgba(7,18,12,.90);
+    --border:rgba(37,211,102,.65);
+    --text:#eafff0;
+    --muted:#9aa9a0;
+    --danger:#ff5555;
+    --warning:#ffc857;
+}
+
+html{
+    scroll-behavior:smooth;
+}
+
+body{
+    min-height:100vh;
+    overflow-x:hidden;
+
+    background:
+        radial-gradient(circle at 50% 10%,rgba(37,211,102,.12),transparent 35%),
+        radial-gradient(circle at 10% 80%,rgba(18,140,126,.10),transparent 30%),
+        #020403;
+
+    color:var(--text);
+    font-family:"Montserrat",sans-serif;
+}
+
+/* =========================
+   BACKGROUND
+========================= */
+
+#particles-js{
+    position:fixed;
+    inset:0;
+    z-index:-3;
+
+    background:
+        radial-gradient(
+            ellipse at center,
+            #0b2114 0%,
+            #031008 45%,
+            #000 100%
+        );
+}
+
+.cyber-grid{
+    position:fixed;
+    inset:0;
+    z-index:-2;
+    pointer-events:none;
+
+    background-image:
+        linear-gradient(rgba(37,211,102,.035) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(37,211,102,.035) 1px,transparent 1px);
+
+    background-size:50px 50px;
+
+    animation:gridMove 35s linear infinite;
+}
+
+@keyframes gridMove{
+    from{
+        transform:translate(0,0);
+    }
+
+    to{
+        transform:translate(-50px,-50px);
+    }
+}
+
+/* =========================
+   HEADER
+========================= */
+
+.header{
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+
+    height:62px;
+
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+
+    padding:8px 20px;
+
+    background:rgba(2,8,4,.94);
+    backdrop-filter:blur(14px);
+
+    border-bottom:1px solid var(--green);
+
+    box-shadow:
+        0 0 25px rgba(37,211,102,.20);
+
+    z-index:1000;
+}
+
+.logo{
+    display:flex;
+    align-items:center;
+    gap:12px;
+}
+
+.logo img{
+    width:43px;
+    height:43px;
+
+    object-fit:cover;
+
+    border-radius:50%;
+
+    border:2px solid var(--green);
+
+    background:#050805;
+
+    box-shadow:
+        0 0 15px rgba(37,211,102,.65);
+}
+
+.logo-text{
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:1.05rem;
+    font-weight:900;
+
+    letter-spacing:1.5px;
+}
+
+.header-status{
+    display:flex;
+    align-items:center;
+    gap:8px;
+
+    padding:7px 13px;
+
+    border:1px solid rgba(37,211,102,.4);
+    border-radius:30px;
+
+    background:rgba(0,0,0,.5);
+
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.7rem;
+    font-weight:700;
+}
+
+.status-dot{
+    width:8px;
+    height:8px;
+
+    border-radius:50%;
+
+    background:#00ff66;
+
+    box-shadow:0 0 10px #00ff66;
+
+    animation:pulse 1.5s infinite;
+}
+
+@keyframes pulse{
+    0%,100%{
+        opacity:1;
+        transform:scale(1);
+    }
+
+    50%{
+        opacity:.35;
+        transform:scale(.7);
+    }
+}
+
+/* =========================
+   MAIN
+========================= */
+
+.main{
+    width:min(500px,94%);
+
+    margin:0 auto;
+
+    padding:90px 0 35px;
+
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+
+    position:relative;
+    z-index:1;
+}
+
+/* =========================
+   PROFILE
+========================= */
+
+.profile{
+    text-align:center;
+}
+
+.profile-container{
+    width:150px;
+    height:150px;
+
+    margin:10px auto 18px;
+
+    position:relative;
+
+    animation:float 5s ease-in-out infinite;
+}
+
+.profile-border{
+    position:absolute;
+
+    inset:-8px;
+
+    border-radius:50%;
+
+    background:
+        conic-gradient(
+            from 0deg,
+            var(--green),
+            #fff,
+            var(--dark),
+            var(--light),
+            var(--green)
+        );
+
+    animation:rotate 4s linear infinite;
+
+    box-shadow:
+        0 0 25px rgba(37,211,102,.7),
+        0 0 50px rgba(37,211,102,.25);
+}
+
+.profile-border::after{
+    content:"";
+
+    position:absolute;
+    inset:5px;
+
+    border-radius:50%;
+
+    background:var(--black);
+}
+
+.profile-img{
+    position:relative;
+
+    width:100%;
+    height:100%;
+
+    object-fit:cover;
+
+    border-radius:50%;
+
+    border:3px solid var(--green);
+
+    background:#050805;
+
+    z-index:2;
+
+    box-shadow:
+        0 0 25px rgba(37,211,102,.8);
+}
+
+@keyframes rotate{
+    to{
+        transform:rotate(360deg);
+    }
+}
+
+@keyframes float{
+    0%,100%{
+        transform:translateY(0);
+    }
+
+    50%{
+        transform:translateY(-10px);
+    }
+}
+
+/* =========================
+   STATS
+========================= */
+
+.stats{
+    display:flex;
+    justify-content:center;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.stat{
+    display:flex;
+    align-items:center;
+    gap:7px;
+
+    padding:8px 15px;
+
+    border:1px solid var(--green);
+    border-radius:30px;
+
+    background:rgba(0,0,0,.65);
+
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.72rem;
+    font-weight:700;
+
+    box-shadow:
+        0 0 12px rgba(37,211,102,.15);
+}
+
+.stat span{
+    color:#fff;
+}
+
+.stat.online{
+    border-color:rgba(255,255,255,.5);
+    color:#fff;
+}
+
+/* =========================
+   MAIN CARD
+========================= */
+
+.box{
+    position:relative;
+    overflow:hidden;
+
+    padding:30px;
+
+    text-align:center;
+
+    background:var(--card);
+
+    border:1px solid var(--border);
+    border-radius:20px;
+
+    backdrop-filter:blur(15px);
+
+    box-shadow:
+        0 0 40px rgba(37,211,102,.18),
+        inset 0 0 35px rgba(37,211,102,.035);
+}
+
+.box::before{
+    content:"";
+
+    position:absolute;
+
+    top:0;
+    left:0;
+    right:0;
+
+    height:4px;
+
+    background:
+        linear-gradient(
+            90deg,
+            transparent,
+            var(--green),
+            var(--light),
+            var(--green),
+            transparent
+        );
+}
+
+.box h2{
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:1.8rem;
+    font-weight:900;
+
+    letter-spacing:2px;
+
+    margin-bottom:5px;
+}
+
+.box h5{
+    color:var(--muted);
+
+    font-family:"Orbitron",sans-serif;
+
+    letter-spacing:2px;
+
+    margin-bottom:14px;
+}
+
+.description{
+    color:#b8c5bd;
+
+    font-size:.9rem;
+
+    line-height:1.65;
+
+    margin-bottom:22px;
+}
+
+.example{
+    display:inline-block;
+
+    margin-top:5px;
+
+    padding:4px 9px;
+
+    border-radius:6px;
+
+    background:rgba(37,211,102,.08);
+
+    color:var(--green);
+
+    font-family:monospace;
+}
+
+/* =========================
+   INPUT
+========================= */
+
+.input-container{
+    display:flex;
+    gap:9px;
+
+    margin-bottom:15px;
+}
+
+.input-container input{
+    flex:1;
+
+    min-width:0;
+
+    padding:14px 15px;
+
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:12px;
+
+    outline:none;
+
+    background:rgba(0,0,0,.65);
+
+    color:#fff;
+
+    font-size:1rem;
+
+    transition:.3s;
+}
+
+.input-container input::placeholder{
+    color:#68736c;
+}
+
+.input-container input:focus{
+    border-color:var(--green);
+
+    box-shadow:
+        0 0 0 3px rgba(37,211,102,.12),
+        0 0 18px rgba(37,211,102,.10);
+}
+
+.input-container button{
+    padding:14px 18px;
+
+    border:0;
+    border-radius:12px;
+
+    background:var(--green);
+
+    color:#001408;
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.75rem;
+    font-weight:900;
+
+    letter-spacing:1px;
+
+    cursor:pointer;
+
+    transition:.3s;
+
+    white-space:nowrap;
+}
+
+.input-container button:hover:not(:disabled){
+    transform:translateY(-2px);
+
+    box-shadow:
+        0 5px 20px rgba(37,211,102,.4);
+}
+
+.input-container button:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+}
+
+/* =========================
+   RESULT
+========================= */
+
+#pair-result{
+    min-height:86px;
+
+    display:flex;
+    align-items:center;
+    justify-content:center;
+
+    padding:18px;
+
+    border:1px solid rgba(37,211,102,.15);
+    border-radius:13px;
+
+    background:rgba(0,0,0,.6);
+
+    word-break:break-word;
+}
+
+#idle-message{
+    color:#59625d;
+}
+
+#waiting-message{
+    color:var(--green);
+    font-weight:700;
+}
+
+.code-label{
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.75rem;
+
+    letter-spacing:1px;
+
+    margin-bottom:8px;
+}
+
+.code-value{
+    color:#fff;
+
+    font-family:"Orbitron",sans-serif;
+    font-size:1.75rem;
+    font-weight:900;
+
+    letter-spacing:5px;
+
+    text-shadow:
+        0 0 15px rgba(37,211,102,.65);
+}
+
+.error-message{
+    color:var(--danger);
+
+    font-size:.85rem;
+
+    line-height:1.5;
+}
+
+.success-message{
+    color:var(--green);
+
+    font-size:.9rem;
+
+    line-height:1.6;
+}
+
+/* =========================
+   COPY BUTTON
+========================= */
+
+#copy-code{
+    display:none;
+
+    margin:15px auto 0;
+
+    padding:11px 24px;
+
+    border:1px solid var(--green);
+    border-radius:30px;
+
+    background:transparent;
+
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.75rem;
+    font-weight:800;
+
+    letter-spacing:1px;
+
+    cursor:pointer;
+
+    transition:.3s;
+}
+
+#copy-code:hover{
+    background:var(--green);
+    color:#001408;
+
+    box-shadow:
+        0 0 20px rgba(37,211,102,.5);
+}
+
+/* =========================
+   INSTRUCTIONS
+========================= */
+
+.about{
+    margin-top:18px;
+
+    padding:22px;
+
+    text-align:center;
+
+    background:rgba(0,0,0,.35);
+
+    border:1px solid rgba(37,211,102,.3);
+    border-radius:15px;
+}
+
+.about h3{
+    margin-bottom:15px;
+
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+    font-size:1rem;
+}
+
+.instructions{
+    display:grid;
+    gap:10px;
+
+    text-align:left;
+}
+
+.instruction{
+    padding:11px 13px;
+
+    border-left:3px solid var(--green);
+
+    background:rgba(37,211,102,.035);
+
+    color:#bfcac3;
+
+    font-size:.85rem;
+
+    line-height:1.55;
+}
+
+.instruction strong{
+    color:#fff;
+}
+
+.owner-button{
+    width:100%;
+
+    display:inline-flex;
+    justify-content:center;
+    align-items:center;
+    gap:8px;
+
+    margin-top:16px;
+
+    padding:13px;
+
+    border-radius:12px;
+
+    background:var(--green);
+
+    color:#001408;
+
+    font-family:"Orbitron",sans-serif;
+    font-size:.75rem;
+    font-weight:900;
+
+    text-decoration:none;
+
+    transition:.3s;
+}
+
+.owner-button:hover{
+    transform:translateY(-2px);
+
+    box-shadow:
+        0 0 25px rgba(37,211,102,.45);
+}
+
+.warn{
+    display:block;
+
+    margin-top:14px;
+
+    color:var(--warning);
+
+    font-size:.75rem;
+
+    line-height:1.5;
+}
+
+/* =========================
+   FOOTER
+========================= */
+
+.footer{
+    padding:5px 0 0;
+
+    text-align:center;
+
+    color:#69756e;
+
+    font-size:.72rem;
+
+    line-height:1.7;
+}
+
+.footer strong{
+    color:var(--green);
+
+    font-family:"Orbitron",sans-serif;
+}
+
+/* =========================
+   MOBILE
+========================= */
+
+@media(max-width:600px){
+
+    .header{
+        padding:8px 12px;
+    }
+
+    .logo-text{
+        font-size:.82rem;
+    }
+
+    .logo img{
+        width:38px;
+        height:38px;
+    }
+
+    .header-status{
+        padding:6px 9px;
+        font-size:.58rem;
+    }
+
+    .main{
+        width:94%;
+        padding-top:82px;
+    }
+
+    .profile-container{
+        width:135px;
+        height:135px;
+    }
+
+    .box{
+        padding:25px 17px;
+    }
+
+    .box h2{
+        font-size:1.55rem;
+    }
+
+    .input-container{
+        flex-direction:column;
+    }
+
+    .input-container button{
+        width:100%;
+    }
+
+    .code-value{
+        font-size:1.4rem;
+        letter-spacing:3px;
+    }
+}
+
+@media(max-width:360px){
+
+    .header-status{
+        display:none;
+    }
+
+    .logo-text{
+        font-size:.75rem;
+    }
+
+    .stat{
+        width:100%;
+        justify-content:center;
+    }
+}
+
+</style></head><body><div id="particles-js"></div>
+<div class="cyber-grid"></div><!-- HEADER --><header class="header"><div class="logo">
+
+    <img
+        id="headerImg"
+        src="/bot-image"
+        alt="ETIAS-MINI-BOT"
+    >
+
+    <div class="logo-text">
+        ETIAS-MINI-BOT
+    </div>
+
+</div>
+
+<div class="header-status">
+    <span class="status-dot"></span>
+    SYSTEM ONLINE
+</div>
+
+</header><main class="main"><!-- PROFILE -->
+<section class="profile">
+
+    <div class="profile-container">
+
+        <div class="profile-border"></div>
+
+        <img
+            id="mainImg"
+            src="/bot-image"
+            alt="ETIAS-MINI-BOT"
+            class="profile-img"
+        >
+
+    </div>
+
+    <!-- STATS -->
+    <div class="stats">
+
+        <div class="stat">
+            <i class="fas fa-users"></i>
+            TOTAL:
+            <span id="total-users">--</span>
+        </div>
+
+        <div class="stat online">
+            <i
+                class="fas fa-circle"
+                style="font-size:8px"
+            ></i>
+
+            ONLINE:
+            <span id="online-users">--</span>
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- PAIR CARD -->
+<section class="box">
+
+    <h2>PAIR CODE</h2>
+
+    <h5>V2 ULTRA</h5>
+
+    <p class="description">
+
+        Enter your WhatsApp number with country code.
+
+        <br>
+
+        Example:
+
+        <span class="example">
+            2637XXXXXXXX
+        </span>
+
+    </p>
+
+
+    <!-- INPUT -->
+    <div class="input-container">
+
+        <input
+            type="tel"
+            id="number"
+            inputmode="numeric"
+            autocomplete="tel"
+            placeholder="2637XXXXXXXX"
+            maxlength="15"
+        >
+
+        <button id="submit">
+            GET CODE
+        </button>
+
+    </div>
+
+
+    <!-- RESULT -->
+    <div id="pair-result">
+
+        <p id="idle-message">
+            Your pairing code will appear here
+        </p>
+
+        <p
+            id="waiting-message"
+            style="display:none"
+        >
+            Processing...
+        </p>
+
+    </div>
+
+
+    <!-- COPY -->
+    <button
+        id="copy-code"
+        type="button"
+    >
+        <i class="fas fa-copy"></i>
+        COPY CODE
+    </button>
+
+
+    <!-- INSTRUCTIONS -->
+    <div class="about">
+
+        <h3>
+            <i class="fas fa-mobile-screen-button"></i>
+            HOW TO CONNECT
+        </h3>
+
+        <div class="instructions">
+
+            <div class="instruction">
+                <strong>1.</strong>
+                Enter your WhatsApp number above.
+            </div>
+
+            <div class="instruction">
+                <strong>2.</strong>
+                Press <strong>GET CODE</strong>.
+            </div>
+
+            <div class="instruction">
+                <strong>3.</strong>
+                Open WhatsApp and go to
+                <strong>Linked Devices</strong>.
+            </div>
+
+            <div class="instruction">
+                <strong>4.</strong>
+                Select
+                <strong>Link with phone number</strong>.
+            </div>
+
+            <div class="instruction">
+                <strong>5.</strong>
+                Enter the pairing code shown above.
+            </div>
+
+            <div class="instruction">
+                <strong>6.</strong>
+                After successful connection, your
+                <strong>SESSION_ID</strong> will be sent
+                to the connected WhatsApp account.
+            </div>
+
+        </div>
+
+
+        <a
+            href="https://wa.me/263778810589?text=Hi%20Owner%2C%20I%20have%20connected%20ETIAS-MINI-BOT."
+            target="_blank"
+            rel="noopener noreferrer"
+            class="owner-button"
+        >
+            <i class="fab fa-whatsapp"></i>
+            CONTACT OWNER
+        </a>
+
+        <span class="warn">
+            ⚠️ Keep your SESSION_ID private.
+            Do not publish authentication data publicly.
+        </span>
+
+    </div>
+
+</section>
+
+
+<!-- FOOTER -->
+<footer class="footer">
+
+    <div>
+        ETIAS-MINI-BOT © 2026
+    </div>
+
+    <div>
+        POWERED BY
+        <strong>ETIAS TECH</strong>
+    </div>
+
+</footer>
+
+</main><!-- PARTICLES --><script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script><script>
+
+/* =========================================
+   PARTICLES
+========================================= */
+
+if(typeof particlesJS !== "undefined"){
+
+    particlesJS("particles-js",{
+
+        particles:{
+
+            number:{
+                value:60,
+                density:{
+                    enable:true,
+                    value_area:800
+                }
+            },
+
+            color:{
+                value:"#25D366"
+            },
+
+            shape:{
+                type:"circle"
+            },
+
+            opacity:{
+                value:.4,
+                random:true
+            },
+
+            size:{
+                value:3,
+                random:true
+            },
+
+            line_linked:{
+                enable:true,
+                distance:150,
+                color:"#25D366",
+                opacity:.2,
+                width:1
+            },
+
+            move:{
+                enable:true,
+                speed:1.6,
+                random:true,
+                out_mode:"out"
+            }
+
+        },
+
+        interactivity:{
+
+            detect_on:"canvas",
+
+            events:{
+
+                onhover:{
+                    enable:true,
+                    mode:"repulse"
+                },
+
+                onclick:{
+                    enable:true,
+                    mode:"push"
+                },
+
+                resize:true
+
+            },
+
+            modes:{
+
+                repulse:{
+                    distance:100,
+                    duration:.4
+                },
+
+                push:{
+                    particles_nb:3
+                }
+
+            }
+
+        },
+
+        retina_detect:true
+
+    });
+
+}
+
+
+/* =========================================
+   IMAGE FALLBACK
+========================================= */
+
+function setupImageFallback(img){
+
+    if(!img) return;
+
+    const fallbacks=[
+        "/media/bot.jpg",
+        "/media/bot_image.png",
+        "/media/bot.jpeg",
+        "/media/bot.webp",
+        "/media/logo.jpg"
+    ];
+
+    let index=0;
+
+    img.addEventListener("error",function(){
+
+        if(index < fallbacks.length){
+
+            this.src=fallbacks[index++];
+
+        }else{
+
+            this.style.display="none";
+
+        }
+
+    });
+
+}
+
+setupImageFallback(
+    document.getElementById("headerImg")
+);
+
+setupImageFallback(
+    document.getElementById("mainImg")
+);
+
+
+/* =========================================
+   ELEMENTS
+========================================= */
+
+const numberInput =
+    document.getElementById("number");
+
+const submitBtn =
+    document.getElementById("submit");
+
+const pairResult =
+    document.getElementById("pair-result");
+
+const idleMessage =
+    document.getElementById("idle-message");
+
+const waitingMessage =
+    document.getElementById("waiting-message");
+
+const copyBtn =
+    document.getElementById("copy-code");
+
+
+let currentCode = "";
+let currentPairingId = null;
+let pollTimer = null;
+
+
+/* =========================================
+   NUMBER CLEANING
+========================================= */
+
+function cleanNumber(value){
+
+    return String(value || "")
+        .replace(/\D/g,"")
+        .trim();
+
+}
+
+
+/* =========================================
+   SHOW MESSAGE
+========================================= */
+
+function showResult(html){
+
+    pairResult.innerHTML = html;
+
+}
+
+
+/* =========================================
+   REQUEST PAIR CODE
+========================================= */
+
+async function requestPairCode(){
+
+    const number =
+        cleanNumber(numberInput.value);
+
+    if(!number){
+
+        showResult(`
+            <div class="error-message">
+                <i class="fas fa-circle-exclamation"></i>
+                Enter your WhatsApp number.
+            </div>
+        `);
+
+        return;
+
+    }
+
+
+    if(number.length < 10 || number.length > 15){
+
+        showResult(`
+            <div class="error-message">
+                <i class="fas fa-circle-exclamation"></i>
+                Enter a valid international phone number.
+            </div>
+        `);
+
+        return;
+
+    }
+
+
+    if(pollTimer){
+
+        clearInterval(pollTimer);
+        pollTimer=null;
+
+    }
+
+
+    submitBtn.disabled=true;
+    submitBtn.innerHTML=
+        '<i class="fas fa-spinner fa-spin"></i> WAIT...';
+
+    copyBtn.style.display="none";
+
+    currentCode="";
+    currentPairingId=null;
+
+
+    showResult(`
+        <p id="waiting-message" style="color:var(--green)">
+            <i class="fas fa-spinner fa-spin"></i>
+            Starting pairing...
+        </p>
+    `);
+
+
+    try{
+
+        /*
+         * Existing backend endpoint:
+         *
+         * GET /code?number=2637XXXXXXXX
+         */
+
+        const response =
+            await fetch(
+                "/code?number="+encodeURIComponent(number),
+                {
+                    method:"GET",
+                    cache:"no-store",
+                    headers:{
+                        "Accept":"application/json"
+                    }
+                }
+            );
+
+
+        const data =
+            await response.json()
+            .catch(()=>({}));
+
+
+        if(!response.ok){
+
+            throw new Error(
+                data.error ||
+                "Unable to start pairing"
+            );
+
+        }
+
+
+        /*
+         * Some backend versions return
+         * the code immediately.
+         */
+
+        if(data.code){
+
+            showPairingCode(
+                data.code
+            );
+
+            return;
+
+        }
+
+
+        /*
+         * Current ETIAS backend normally
+         * returns a pairingId first.
+         */
+
+        if(data.pairingId){
+
+            currentPairingId =
+                data.pairingId;
+
+            showResult(`
+                <p style="color:var(--green)">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    Waiting for WhatsApp pairing code...
+                </p>
+            `);
+
+            startStatusPolling();
+
+            return;
+
+        }
+
+
+        if(data.status){
+
+            showResult(`
+                <p style="color:var(--green)">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    ${escapeHtml(data.status)}
+                </p>
+            `);
+
+            if(data.id){
+
+                currentPairingId=data.id;
+                startStatusPolling();
+
+            }
+
+            return;
+
+        }
+
+
+        throw new Error(
+            data.error ||
+            "Pairing request was not accepted"
+        );
+
+
+    }catch(error){
+
+        console.error(
+            "Pairing error:",
+            error
+        );
+
+        showResult(`
+            <div class="error-message">
+                <i class="fas fa-triangle-exclamation"></i>
+                ${escapeHtml(
+                    error.message ||
+                    "Unable to start pairing"
+                )}
+                <br><br>
+                Please wait a few seconds and try again.
+            </div>
+        `);
+
+    }finally{
+
+        submitBtn.disabled=false;
+
+        submitBtn.innerHTML=
+            '<i class="fas fa-key"></i> GET CODE';
+
+        updateTotalUsers();
+
+    }
+
+}
+
+
+/* =========================================
+   STATUS POLLING
+========================================= */
+
+function startStatusPolling(){
+
+    if(!currentPairingId){
+
+        return;
+
+    }
+
+
+    let attempts=0;
+
+    const maxAttempts=40;
+
+
+    if(pollTimer){
+
+        clearInterval(pollTimer);
+
+    }
+
+
+    pollTimer=setInterval(
+        async()=>{
+
+            attempts++;
+
+            try{
+
+                const response=
+                    await fetch(
+                        "/status/"+
+                        encodeURIComponent(
+                            currentPairingId
+                        ),
+                        {
+                            cache:"no-store",
+                            headers:{
+                                "Accept":
+                                    "application/json"
+                            }
+                        }
+                    );
+
+
+                const data=
+                    await response.json()
+                    .catch(()=>({}));
+
+
+                if(data.code){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showPairingCode(
+                        data.code
+                    );
+
+                    submitBtn.disabled=false;
+
+                    submitBtn.innerHTML=
+                        '<i class="fas fa-key"></i> GET CODE';
+
+                    return;
+
+                }
+
+
+                /*
+                 * Backend may use
+                 * pairingCode instead.
+                 */
+
+                if(data.pairingCode){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showPairingCode(
+                        data.pairingCode
+                    );
+
+                    submitBtn.disabled=false;
+
+                    submitBtn.innerHTML=
+                        '<i class="fas fa-key"></i> GET CODE';
+
+                    return;
+
+                }
+
+
+                /*
+                 * If connected before the code
+                 * was displayed, tell the user.
+                 */
+
+                if(
+                    data.connected === true ||
+                    data.status === "connected"
+                ){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showResult(`
+                        <div class="success-message">
+                            <i class="fas fa-circle-check"></i>
+                            WhatsApp connected successfully.
+                            <br><br>
+                            Your SESSION_ID has been sent
+                            to the connected WhatsApp account.
+                        </div>
+                    `);
+
+                    return;
+
+                }
+
+
+                if(
+                    data.status === "failed" ||
+                    data.status === "error"
+                ){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showResult(`
+                        <div class="error-message">
+                            <i class="fas fa-circle-xmark"></i>
+                            ${
+                                escapeHtml(
+                                    data.error ||
+                                    "Pairing failed"
+                                )
+                            }
+                        </div>
+                    `);
+
+                    return;
+
+                }
+
+
+                if(attempts >= maxAttempts){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showResult(`
+                        <div class="error-message">
+                            <i class="fas fa-clock"></i>
+                            Pairing request timed out.
+                            Please try again.
+                        </div>
+                    `);
+
+                }
+
+            }catch(error){
+
+                console.warn(
+                    "Status polling:",
+                    error
+                );
+
+                /*
+                 * Do not immediately fail.
+                 * Temporary network errors are common.
+                 */
+
+                if(attempts >= maxAttempts){
+
+                    clearInterval(
+                        pollTimer
+                    );
+
+                    pollTimer=null;
+
+                    showResult(`
+                        <div class="error-message">
+                            Unable to check pairing status.
+                            Please try again.
+                        </div>
+                    `);
+
+                }
+
+            }
+
+        },
+        1500
+    );
+
+}
+
+
+/* =========================================
+   DISPLAY CODE
+========================================= */
+
+function showPairingCode(code){
+
+    currentCode =
+        String(code || "")
+        .trim();
+
+
+    if(!currentCode){
+
+        showResult(`
+            <div class="error-message">
+                Pairing code was empty.
+            </div>
+        `);
+
+        return;
+
+    }
+
+
+    showResult(`
+
+        <div>
+
+            <div class="code-label">
+                YOUR PAIRING CODE
+            </div>
+
+            <div class="code-value">
+                ${escapeHtml(currentCode)}
+            </div>
+
+            <div
+                style="
+                    color:#78837c;
+                    font-size:.72rem;
+                    margin-top:9px;
+                "
+            >
+                Enter this code in WhatsApp
+            </div>
+
+        </div>
+
+    `);
+
+
+    copyBtn.style.display="inline-block";
+
+}
+
+
+/* =========================================
+   COPY CODE
+========================================= */
+
+copyBtn.addEventListener(
+    "click",
+    async()=>{
+
+        if(!currentCode){
+
+            return;
+
+        }
+
+
+        try{
+
+            await navigator.clipboard.writeText(
+                currentCode
+            );
+
+            copyBtn.innerHTML=
+                '<i class="fas fa-check"></i> COPIED';
+
+            setTimeout(()=>{
+
+                copyBtn.innerHTML=
+                    '<i class="fas fa-copy"></i> COPY CODE';
+
+            },2000);
+
+        }catch(error){
+
+            /*
+             * Fallback for browsers where
+             * Clipboard API is unavailable.
+             */
+
+            const area=
+                document.createElement("textarea");
+
+            area.value=currentCode;
+
+            document.body.appendChild(area);
+
+            area.select();
+
+            document.execCommand("copy");
+
+            area.remove();
+
+            copyBtn.innerHTML=
+                '<i class="fas fa-check"></i> COPIED';
+
+            setTimeout(()=>{
+
+                copyBtn.innerHTML=
+                    '<i class="fas fa-copy"></i> COPY CODE';
+
+            },2000);
+
+        }
+
+    }
+);
+
+
+/* =========================================
+   ENTER KEY
+========================================= */
+
+numberInput.addEventListener(
+    "keydown",
+    function(event){
+
+        if(event.key==="Enter"){
+
+            event.preventDefault();
+
+            requestPairCode();
+
+        }
+
+    }
+);
+
+
+/* =========================================
+   INPUT CLEANING
+========================================= */
+
+numberInput.addEventListener(
+    "input",
+    function(){
+
+        this.value=
+            this.value.replace(/\D/g,"");
+
+    }
+);
+
+
+/* =========================================
+   SUBMIT
+========================================= */
+
+submitBtn.addEventListener(
+    "click",
+    requestPairCode
+);
+
+
+/* =========================================
+   ESCAPE HTML
+========================================= */
+
+function escapeHtml(value){
+
+    return String(value ?? "")
+        .replace(/&/g,"&amp;")
+        .replace(/</g,"&lt;")
+        .replace(/>/g,"&gt;")
+        .replace(/"/g,"&quot;")
+        .replace(/'/g,"&#039;");
+
+}
+
+
+/* =========================================
+   USER STATISTICS
+========================================= */
+
+async function updateTotalUsers(){
+
+    const totalEl=
+        document.getElementById(
+            "total-users"
+        );
+
+    const onlineEl=
+        document.getElementById(
+            "online-users"
+        );
+
+
+    try{
+
+        const response=
+            await fetch(
+                "/total-users",
+                {
+                    method:"GET",
+                    cache:"no-store",
+                    headers:{
+                        "Accept":
+                            "application/json"
+                    }
+                }
+            );
+
+
+        if(!response.ok){
+
+            throw new Error(
+                "HTTP "+response.status
+            );
+
+        }
+
+
+        const data=
+            await response.json();
+
+
+        const total=
+            Number(
+                data.total ??
+                data.count ??
+                0
+            );
+
+
+        const online=
+            Number(
+                data.online ??
+                0
+            );
+
+
+        totalEl.textContent=
+            Number.isFinite(total)
+                ? total.toLocaleString()
+                : "0";
+
+
+        onlineEl.textContent=
+            Number.isFinite(online)
+                ? online.toLocaleString()
+                : "0";
+
+
+    }catch(error){
+
+        console.warn(
+            "Statistics unavailable:",
+            error
+        );
+
+        if(totalEl.textContent==="--"){
+
+            totalEl.textContent="0";
+
+        }
+
+        if(onlineEl.textContent==="--"){
+
+            onlineEl.textContent="0";
+
+        }
+
+    }
+
+}
+
+
+updateTotalUsers();
+
+
+setInterval(
+    updateTotalUsers,
+    10000
+);
+
+
+/* =========================================
+   PAGE VISIBILITY
+========================================= */
+
+document.addEventListener(
+    "visibilitychange",
+    function(){
+
+        if(!document.hidden){
+
+            updateTotalUsers();
+
+        }
+
+    }
+);
+
+</script></body>
+</html>
