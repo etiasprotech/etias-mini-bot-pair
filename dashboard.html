@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETIAS-MINI-BOT - Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:'Inter',sans-serif}
+body{background:#0f0f0f;color:#fff;min-height:100vh;padding:18px}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+.brand{display:flex;align-items:center;gap:12px}
+.brand h1{font-size:32px;font-weight:800;letter-spacing:-1px;line-height:1}
+.brand p{color:#8a8a8a;font-size:14px;margin-top:4px}
+.top-actions{display:flex;gap:10px}
+.btn{border:none;padding:10px 20px;border-radius:999px;font-weight:600;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.btn-dark{background:#1e1e1e;color:#fff;border:1px solid #2a2a2a}
+.btn-light{background:#fff;color:#000}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:500px){.stats{grid-template-columns:1fr}}
+.stat{background:#191919;border-radius:16px;padding:20px;border:1px solid #222}
+.stat .icon-top{font-size:20px;margin-bottom:18px;display:block}
+.stat .label{color:#9a9a9a;font-size:14px;margin-bottom:8px}
+.stat .value{font-size:52px;font-weight:800;letter-spacing:-2px}
+.stat .value.green{color:#2ecc71}.stat .value.red{color:#ff5a5f}
+.table-card{background:#191919;border-radius:18px;border:1px solid #222;overflow:hidden}
+.table-head{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border-bottom:1px solid #262626;flex-wrap:wrap;gap:10px}
+.table-head h2{font-size:20px;font-weight:700}
+.search-wrap{position:relative}
+.search-wrap input{background:#101010;border:1px solid #2a2a2a;border-radius:999px;padding:9px 16px 9px 38px;color:#fff;font-size:13px;width:220px;outline:none}
+.search-wrap span{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#666}
+table{width:100%;border-collapse:collapse}
+th{color:#6a6a6a;font-size:12px;font-weight:600;text-align:left;padding:14px 16px;text-transform:uppercase;border-bottom:1px solid #262626}
+td{padding:14px 16px;font-size:13px;border-bottom:1px solid #1f1f1f;color:#d0d0d0}
+.badge{padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;display:inline-block;margin-top:4px}
+.badge.online{background:rgba(46,204,113,.12);color:#2ecc71;border:1px solid rgba(46,204,113,.2)}
+.badge.offline{background:rgba(255,90,95,.12);color:#ff5a5f;border:1px solid rgba(255,90,95,.2)}
+.user-cell{display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:#2a2a2a;display:flex;align-items:center;justify-content:center}
+.session{color:#666;font-family:monospace;font-size:11px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+.action-btn{background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;padding:4px 8px;border-radius:6px}
+.action-btn.renew{color:#3498db}.action-btn.del{color:#ff5a5f}
+.empty{text-align:center;padding:60px 20px;color:#555}
+.footer{text-align:center;color:#3a3a3a;font-size:11px;margin-top:26px;letter-spacing:.8px;text-transform:uppercase}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:36px">🤖</div>
+    <div><h1>ETIAS-MINI-BOT</h1><p>Deployed Users Dashboard • MongoDB</p></div>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button class="btn btn-dark" onclick="load()">↻ Refresh</button>
+    <a href="/" class="btn btn-light" style="text-decoration:none">⌂ Home</a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><span class="icon-top">👥</span><div class="label">Total Users</div><div class="value" id="total">0</div></div>
+  <div class="stat"><span class="icon-top" style="color:#2ecc71">●</span><div class="label">Active Now</div><div class="value green" id="active">0</div></div>
+  <div class="stat"><span class="icon-top" style="color:#ff5a5f">◷</span><div class="label">Expired</div><div class="value red" id="expired">0</div></div>
+  <div class="stat"><span class="icon-top">🔥</span><div class="label">Uptime</div><div class="value">24/7🔥</div></div>
+</div>
+
+<div class="table-card">
+  <div class="table-head"><h2>Deployed Bots</h2><div class="search-wrap"><span>🔍</span><input id="search" placeholder="Search number..." oninput="filter()"></div></div>
+  <div style="overflow-x:auto">
+  <table>
+    <thead><tr><th>User</th><th>Number / Status</th><th>Session</th><th>Duration</th><th>Deployed</th><th>Action</th></tr></thead>
+    <tbody id="tbody"><tr><td colspan="6"><div class="empty">🤖<br>No users deployed yet</div></td></tr></tbody>
+  </table>
+  </div>
+</div>
+
+<div class="footer">POWERED BY ETIAS-TECH • MongoDB Connected.</div>
+
+<script>
+let allData=[];
+async function load(){
+  const r=await fetch('/deployments');
+  const data=await r.json();
+  allData=data;
+  document.getElementById('total').textContent=data.length;
+  document.getElementById('active').textContent=data.filter(d=>d.liveConnected||d.connected).length;
+  document.getElementById('expired').textContent=data.filter(d=>new Date(d.expiry||d.expireAt)<new Date()).length;
+  render(data);
+}
+function render(data){
+  const tb=document.getElementById('tbody');
+  if(!data.length){tb.innerHTML=`<tr><td colspan="6"><div class="empty">🤖<br>No users deployed yet</div></td></tr>`;return;}
+  tb.innerHTML=data.map(d=>{
+    const online=d.liveConnected||d.connected;
+    const date=new Date(d.deployedAt||Date.now()).toLocaleDateString();
+    return `<tr>
+      <td><div class="user-cell"><div class="avatar">👤</div>User</div></td>
+      <td>${d.phone||d.number}<br><span class="badge ${online?'online':'offline'}">${online?'ONLINE':'OFFLINE'}</span></td>
+      <td><span class="session">${d.sessionId}</span></td>
+      <td>${d.duration||30}d</td>
+      <td>${date}</td>
+      <td><button class="action-btn renew" onclick="renew('${d.sessionId}')">Renew</button><button class="action-btn del" onclick="delBot('${d.sessionId}')">Delete</button></td>
+    </tr>`;
+  }).join('');
+}
+function filter(){
+  const q=document.getElementById('search').value.toLowerCase();
+  render(allData.filter(d=> (d.phone||'').includes(q) || (d.sessionId||'').toLowerCase().includes(q)));
+}
+async function delBot(sessionId){
+  const key=prompt('Enter ADMIN_KEY:'); if(!key) return;
+  if(!confirm('Delete '+sessionId+'?')) return;
+  const res=await fetch('/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminKey:key,sessionId})});
+  const j=await res.json(); if(j.error) alert(j.error); else load();
+}
+async function renew(sessionId){
+  const key=prompt('Enter ADMIN_KEY:'); if(!key) return;
+  const dur=prompt('Days?','30'); if(!dur) return;
+  const res=await fetch('/renew',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminKey:key,sessionId,duration:dur})});
+  const j=await res.json(); if(j.error) alert(j.error); else load();
+}
+load(); setInterval(load,5000);
+</script>
+</body>
+</html>
